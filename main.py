@@ -16,6 +16,7 @@ try:
         'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'IvFcKTyXyPvwjFTXPyEasdaHdDvhKoaM')),
         'database': st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'railway')),
         'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 49523)))
+    }
 except:
     DB_CONFIG = {
         'host': os.getenv('DB_HOST', 'localhost'),
