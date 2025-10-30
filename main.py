@@ -11,10 +11,10 @@ import os
 # Try to get from Streamlit secrets first, then environment variables, then defaults
 try:
     DB_CONFIG = {
-        'host': st.secrets.get('DB_HOST', os.getenv('MYSQLHOST')),
-        'user': st.secrets.get('DB_USER', os.getenv('MYSQLUSER')),
-        'password': st.secrets.get('DB_PASSWORD', os.getenv('MYSQLPASSWORD')),
-        'database': st.secrets.get('DB_NAME', os.getenv('MYSQLDATABASE')),
+        'host': st.secrets.get('DB_HOST', os.getenv('mysql.railway.internal')),
+        'user': st.secrets.get('DB_USER', os.getenv('root')),
+        'password': st.secrets.get('DB_PASSWORD', os.getenv('IvFcKTyXyPvwjFTXPyEasdaHdDvhKoaM')),
+        'database': st.secrets.get('DB_NAME', os.getenv('railway')),
         'port': int(st.secrets.get('DB_PORT', os.getenv('MYSQLPORT', 3306)))
     }
 except:
