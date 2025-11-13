@@ -26,9 +26,11 @@ except:
         'port': int(os.getenv('DB_PORT', 3306))
     }
 
-# Grading System
+# Grading System - Pure Functions (No Database Dependencies)
 def calculate_grade(score, total_marks):
     """Calculate letter grade based on percentage"""
+    if total_marks == 0:
+        return 'F'
     percentage = (score / total_marks) * 100
     if percentage >= 90:
         return 'A'
@@ -44,6 +46,10 @@ def calculate_grade(score, total_marks):
 def determine_pass_fail(grade):
     """Determine pass/fail status based on grade"""
     return 'Pass' if grade in ['A', 'B', 'C', 'D'] else 'Fail'
+
+def calculate_attempt_status(score_obtained):
+    """Calculate attempt status based on score"""
+    return 'completed' if score_obtained is not None else 'pending'
 
 # Database Connection
 def get_db_connection():
@@ -130,7 +136,6 @@ def init_database():
                 enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
                 student_id INT NOT NULL,
                 course_id INT NOT NULL,
-                status VARCHAR(20) DEFAULT 'active',
                 enrollment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES STUDENT(student_id) ON DELETE CASCADE,
                 FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE,
@@ -138,28 +143,25 @@ def init_database():
             )
         """)
         
-        # Create EXAM_ATTEMPT table
+        # Create EXAM_ATTEMPT table (REMOVED status column - 3NF compliant)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS EXAM_ATTEMPT (
                 attempt_id INT AUTO_INCREMENT PRIMARY KEY,
                 exam_id INT NOT NULL,
                 student_id INT NOT NULL,
                 score_obtained FLOAT,
-                status VARCHAR(20) DEFAULT 'pending',
                 attempt_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (exam_id) REFERENCES EXAM(exam_id) ON DELETE CASCADE,
                 FOREIGN KEY (student_id) REFERENCES STUDENT(student_id) ON DELETE CASCADE
             )
         """)
         
-        # Create GRADE table
+        # Create GRADE table (REMOVED letter_grade and status columns - 3NF compliant)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS GRADE (
                 grade_id INT AUTO_INCREMENT PRIMARY KEY,
                 enrollment_id INT NOT NULL,
                 total_score FLOAT,
-                letter_grade VARCHAR(2),
-                status VARCHAR(20),
                 graded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (enrollment_id) REFERENCES ENROLLMENT(enrollment_id) ON DELETE CASCADE
             )
@@ -215,7 +217,7 @@ def get_student_enrollments(student_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT e.enrollment_id, c.course_code, c.course_name, e.status,
+            SELECT e.enrollment_id, c.course_code, c.course_name,
                    u.full_name as teacher_name
             FROM ENROLLMENT e
             JOIN COURSE c ON e.course_id = c.course_id
@@ -243,6 +245,11 @@ def get_student_exam_attempts(student_id):
             ORDER BY ea.attempt_date DESC
         """, (student_id,))
         attempts = cursor.fetchall()
+        
+        # Calculate status on-the-fly (3NF compliant)
+        for attempt in attempts:
+            attempt['status'] = calculate_attempt_status(attempt['score_obtained'])
+        
         cursor.close()
         conn.close()
         return attempts
@@ -253,13 +260,29 @@ def get_student_grades(student_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT g.*, c.course_code, c.course_name
+            SELECT g.*, c.course_code, c.course_name, e.course_id
             FROM GRADE g
             JOIN ENROLLMENT e ON g.enrollment_id = e.enrollment_id
             JOIN COURSE c ON e.course_id = c.course_id
             WHERE e.student_id = %s
         """, (student_id,))
         grades = cursor.fetchall()
+        
+        # Calculate letter_grade and status on-the-fly (3NF compliant)
+        for grade in grades:
+            # Get average total marks for the course
+            cursor.execute("""
+                SELECT AVG(ex.total_marks) as avg_marks
+                FROM EXAM ex
+                WHERE ex.course_id = %s
+            """, (grade['course_id'],))
+            result = cursor.fetchone()
+            avg_marks = result['avg_marks'] if result and result['avg_marks'] else 100
+            
+            # Calculate derived fields
+            grade['letter_grade'] = calculate_grade(grade['total_score'], avg_marks)
+            grade['status'] = determine_pass_fail(grade['letter_grade'])
+        
         cursor.close()
         conn.close()
         return grades
@@ -321,6 +344,11 @@ def get_exam_attempts(exam_id):
             ORDER BY u.full_name
         """, (exam_id,))
         attempts = cursor.fetchall()
+        
+        # Calculate status on-the-fly (3NF compliant)
+        for attempt in attempts:
+            attempt['status'] = calculate_attempt_status(attempt['score_obtained'])
+        
         cursor.close()
         conn.close()
         return attempts
@@ -330,9 +358,10 @@ def update_exam_attempt(attempt_id, score):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
+        # Only store score_obtained, status is calculated on-the-fly
         cursor.execute("""
             UPDATE EXAM_ATTEMPT 
-            SET score_obtained = %s, status = 'completed'
+            SET score_obtained = %s
             WHERE attempt_id = %s
         """, (score, attempt_id))
         conn.commit()
@@ -347,8 +376,8 @@ def create_exam(course_id, exam_title, exam_type, total_marks):
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO EXAM (course_id, exam_title, exam_type, total_marks, status)
-                VALUES (%s, %s, %s, %s, 'scheduled')
+                INSERT INTO EXAM (course_id, exam_title, exam_type, total_marks)
+                VALUES (%s, %s, %s, %s)
             """, (course_id, exam_title, exam_type, total_marks))
             conn.commit()
             cursor.close()
@@ -368,7 +397,6 @@ def add_student(username, email, password, full_name, phone, roll_number, date_o
     if conn:
         cursor = conn.cursor()
         try:
-            # Create user account
             hashed_pass = hash_password(password)
             cursor.execute("""
                 INSERT INTO USERS (username, email, password_hash, role, full_name, phone)
@@ -376,7 +404,6 @@ def add_student(username, email, password, full_name, phone, roll_number, date_o
             """, (username, email, hashed_pass, full_name, phone))
             user_id = cursor.lastrowid
             
-            # Create student record
             cursor.execute("""
                 INSERT INTO STUDENT (user_id, roll_number, date_of_birth)
                 VALUES (%s, %s, %s)
@@ -448,8 +475,8 @@ def enroll_student(student_id, course_id):
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO ENROLLMENT (student_id, course_id, status)
-                VALUES (%s, %s, 'active')
+                INSERT INTO ENROLLMENT (student_id, course_id)
+                VALUES (%s, %s)
             """, (student_id, course_id))
             conn.commit()
             cursor.close()
@@ -515,7 +542,7 @@ def get_all_courses():
     return []
 
 def calculate_and_update_grades():
-    """Calculate grades for all enrollments based on exam attempts"""
+    """Calculate grades for all enrollments based on exam attempts - 3NF compliant"""
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
@@ -524,7 +551,6 @@ def calculate_and_update_grades():
         cursor.execute("""
             SELECT e.enrollment_id, e.student_id, e.course_id
             FROM ENROLLMENT e
-            WHERE e.status = 'active'
         """)
         enrollments = cursor.fetchall()
         
@@ -534,27 +560,22 @@ def calculate_and_update_grades():
                 SELECT ea.score_obtained, ex.total_marks
                 FROM EXAM_ATTEMPT ea
                 JOIN EXAM ex ON ea.exam_id = ex.exam_id
-                WHERE ea.student_id = %s AND ex.course_id = %s AND ea.status = 'completed'
+                WHERE ea.student_id = %s AND ex.course_id = %s 
+                AND ea.score_obtained IS NOT NULL
             """, (enrollment['student_id'], enrollment['course_id']))
             attempts = cursor.fetchall()
             
             if attempts:
-                # Calculate total score and average
+                # Calculate total score (sum of all exam scores)
                 total_score = sum(a['score_obtained'] for a in attempts)
-                avg_total_marks = sum(a['total_marks'] for a in attempts) / len(attempts)
                 
-                # Calculate letter grade
-                letter_grade = calculate_grade(total_score / len(attempts), avg_total_marks)
-                status = determine_pass_fail(letter_grade)
-                
-                # Insert or update grade
+                # Insert or update grade (only store total_score, not derived fields)
                 cursor.execute("""
-                    INSERT INTO GRADE (enrollment_id, total_score, letter_grade, status)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO GRADE (enrollment_id, total_score)
+                    VALUES (%s, %s)
                     ON DUPLICATE KEY UPDATE 
-                        total_score = %s, letter_grade = %s, status = %s
-                """, (enrollment['enrollment_id'], total_score, letter_grade, status,
-                      total_score, letter_grade, status))
+                        total_score = %s, graded_at = CURRENT_TIMESTAMP
+                """, (enrollment['enrollment_id'], total_score, total_score))
         
         conn.commit()
         cursor.close()
@@ -562,9 +583,46 @@ def calculate_and_update_grades():
         return True
     return False
 
+def get_all_grades_with_calculations():
+    """Get all grades with calculated letter_grade and status - 3NF compliant"""
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT g.grade_id, s.roll_number, u.full_name, c.course_code, c.course_name,
+                   g.total_score, g.graded_at, e.course_id
+            FROM GRADE g
+            JOIN ENROLLMENT e ON g.enrollment_id = e.enrollment_id
+            JOIN STUDENT s ON e.student_id = s.student_id
+            JOIN USERS u ON s.user_id = u.user_id
+            JOIN COURSE c ON e.course_id = c.course_id
+            ORDER BY s.roll_number, c.course_code
+        """)
+        grades = cursor.fetchall()
+        
+        # Calculate derived fields for each grade
+        for grade in grades:
+            # Get average total marks for the course
+            cursor.execute("""
+                SELECT AVG(ex.total_marks) as avg_marks
+                FROM EXAM ex
+                WHERE ex.course_id = %s
+            """, (grade['course_id'],))
+            result = cursor.fetchone()
+            avg_marks = result['avg_marks'] if result and result['avg_marks'] else 100
+            
+            # Calculate derived fields
+            grade['letter_grade'] = calculate_grade(grade['total_score'], avg_marks)
+            grade['status'] = determine_pass_fail(grade['letter_grade'])
+        
+        cursor.close()
+        conn.close()
+        return grades
+    return []
+
 # Streamlit UI
 def main():
-    st.set_page_config(page_title="Exam Management System", layout="wide")
+    st.set_page_config(page_title="Exam Management System - 3NF Compliant", layout="wide")
     
     # Initialize database
     init_database()
@@ -578,6 +636,7 @@ def main():
     # Login Page
     if not st.session_state.logged_in:
         st.title("🎓 Exam Management System")
+        st.caption("3NF Compliant Database Design")
         st.markdown("---")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -597,6 +656,8 @@ def main():
                     st.rerun()
                 else:
                     st.error("Invalid credentials!")
+            
+            st.info("Default Admin: username=`admin`, password=`admin123`")
     
     # Student Dashboard
     elif st.session_state.role == "student":
@@ -645,6 +706,7 @@ def main():
                 if attempts:
                     df = pd.DataFrame(attempts)
                     st.dataframe(df, use_container_width=True)
+                    st.caption("✨ Status is calculated dynamically (3NF compliant)")
                 else:
                     st.info("No exam attempts recorded yet.")
             
@@ -654,6 +716,7 @@ def main():
                 if grades:
                     df = pd.DataFrame(grades)
                     st.dataframe(df, use_container_width=True)
+                    st.caption("✨ Letter Grade and Status are calculated dynamically (3NF compliant)")
                 else:
                     st.info("No grades available yet.")
     
@@ -699,7 +762,6 @@ def main():
                         if exams:
                             for exam in exams:
                                 with st.expander(f"{exam['exam_title']} ({exam['exam_type']}) - {exam['total_marks']} marks"):
-                                    st.write(f"**Status:** {exam['status']}")
                                     st.write(f"**Created:** {exam['created_at']}")
                                     
                                     st.markdown("#### Student Attempts")
@@ -711,6 +773,7 @@ def main():
                                             
                                             with col1:
                                                 st.write(f"**{attempt['full_name']}** ({attempt['roll_number']})")
+                                                st.caption(f"Status: {attempt['status']}")
                                             
                                             with col2:
                                                 current_score = attempt['score_obtained'] if attempt['score_obtained'] else 0
@@ -727,6 +790,8 @@ def main():
                                                     if update_exam_attempt(attempt['attempt_id'], new_score):
                                                         st.success("Score updated!")
                                                         st.rerun()
+                                        
+                                        st.caption("✨ Status is calculated dynamically (3NF compliant)")
                                     else:
                                         st.info("No attempts recorded yet.")
                         else:
@@ -898,6 +963,7 @@ def main():
         with tabs[4]:
             st.subheader("Calculate and Update Grades")
             st.write("This will calculate grades for all students based on their exam attempts.")
+            st.info("✨ 3NF Compliant: Only total_score is stored. Letter grades and pass/fail status are calculated dynamically.")
             
             if st.button("Calculate Grades", type="primary"):
                 if calculate_and_update_grades():
@@ -908,29 +974,17 @@ def main():
             st.markdown("---")
             st.subheader("View All Grades")
             
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT g.grade_id, s.roll_number, u.full_name, c.course_code, c.course_name,
-                           g.total_score, g.letter_grade, g.status, g.graded_at
-                    FROM GRADE g
-                    JOIN ENROLLMENT e ON g.enrollment_id = e.enrollment_id
-                    JOIN STUDENT s ON e.student_id = s.student_id
-                    JOIN USERS u ON s.user_id = u.user_id
-                    JOIN COURSE co ON e.course_id = co.course_id
-                    JOIN COURSE c ON co.course_id = c.course_id
-                    ORDER BY s.roll_number, c.course_code
-                """)
-                grades = cursor.fetchall()
-                cursor.close()
-                conn.close()
-                
-                if grades:
-                    df = pd.DataFrame(grades)
-                    st.dataframe(df, use_container_width=True)
-                else:
-                    st.info("No grades calculated yet. Click 'Calculate Grades' button above.")
+            grades = get_all_grades_with_calculations()
+            
+            if grades:
+                df = pd.DataFrame(grades)
+                # Remove course_id from display
+                if 'course_id' in df.columns:
+                    df = df.drop('course_id', axis=1)
+                st.dataframe(df, use_container_width=True)
+                st.caption("✨ Letter Grade and Status are calculated dynamically from total_score (3NF compliant)")
+            else:
+                st.info("No grades calculated yet. Click 'Calculate Grades' button above.")
 
 if __name__ == "__main__":
     main()
