@@ -13,9 +13,9 @@ try:
     DB_CONFIG = {
         'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'interchange.proxy.rlwy.net')),
         'user': st.secrets.get('DB_USER', os.getenv('DB_USER', 'root')),
-        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'IvFcKTyXyPvwjFTXPyEasdaHdDvhKoaM')),
+        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'BDuUCrTHxJTWMmeDVdDpRSYCAnvKSulX')),
         'database': st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'railway')),
-        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 49523)))
+        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 3306)))
     }
 except:
     DB_CONFIG = {
