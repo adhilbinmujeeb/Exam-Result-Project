@@ -189,7 +189,7 @@ def get_student_by_user_id(user_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT s.*, u.username, u.full_name as user_full_name
+            SELECT s.*, u.username, u.full_name
             FROM STUDENT s
             JOIN USERS u ON s.user_id = u.user_id
             WHERE s.user_id = %s
@@ -239,63 +239,13 @@ def get_student_exam_attempts(roll_number):
         return attempts
     return []
 
-def get_student_overall_grades(roll_number):
-    """Calculate overall course grades from exam results"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        
-        # Get all enrollments
-        cursor.execute("""
-            SELECT e.enrollment_id, e.course_id, c.course_code, c.course_name
-            FROM ENROLLMENT e
-            JOIN COURSE c ON e.course_id = c.course_id
-            WHERE e.roll_number = %s
-        """, (roll_number,))
-        enrollments = cursor.fetchall()
-        
-        grades = []
-        for enrollment in enrollments:
-            # Get all completed exam attempts with results
-            cursor.execute("""
-                SELECT ea.score_obtained, e.total_marks, er.letter_grade
-                FROM EXAM_ATTEMPT ea
-                JOIN EXAM e ON ea.exam_id = e.exam_id
-                LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
-                WHERE ea.roll_number = %s AND e.course_id = %s 
-                AND ea.score_obtained IS NOT NULL
-            """, (roll_number, enrollment['course_id']))
-            attempts = cursor.fetchall()
-            
-            if attempts:
-                total_score = sum(a['score_obtained'] for a in attempts)
-                avg_total_marks = sum(a['total_marks'] for a in attempts) / len(attempts)
-                
-                # Calculate overall grade
-                overall_grade = calculate_grade(total_score / len(attempts), avg_total_marks)
-                overall_status = determine_pass_fail(overall_grade)
-                
-                grades.append({
-                    'course_code': enrollment['course_code'],
-                    'course_name': enrollment['course_name'],
-                    'total_score': total_score,
-                    'exams_completed': len(attempts),
-                    'overall_grade': overall_grade,
-                    'status': overall_status
-                })
-        
-        cursor.close()
-        conn.close()
-        return grades
-    return []
-
 # Teacher Functions
 def get_teacher_by_user_id(user_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT t.*, u.username, u.full_name as user_full_name
+            SELECT t.*, u.username, u.full_name
             FROM TEACHER t
             JOIN USERS u ON t.user_id = u.user_id
             WHERE t.user_id = %s
@@ -439,7 +389,6 @@ def add_student(username, password, roll_number, name, date_of_birth):
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
-            # Include full_name in INSERT
             cursor.execute("""
                 INSERT INTO USERS (username, password_hash, full_name, role)
                 VALUES (%s, %s, %s, 'student')
@@ -468,7 +417,6 @@ def add_teacher(username, password, name, specialization):
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
-            # Include full_name in INSERT
             cursor.execute("""
                 INSERT INTO USERS (username, password_hash, full_name, role)
                 VALUES (%s, %s, %s, 'teacher')
@@ -605,6 +553,24 @@ def get_all_results():
         return results
     return []
 
+def get_enrolled_students(course_id):
+    """Get students enrolled in a specific course"""
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT s.roll_number, s.name
+            FROM ENROLLMENT e
+            JOIN STUDENT s ON e.roll_number = s.roll_number
+            WHERE e.course_id = %s
+            ORDER BY s.roll_number
+        """, (course_id,))
+        students = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return students
+    return []
+
 # Streamlit UI
 def main():
     st.set_page_config(page_title="Exam Management System", layout="wide")
@@ -621,7 +587,6 @@ def main():
     # Login Page
     if not st.session_state.logged_in:
         st.title("🎓 Exam Management System")
-        st.caption("Enhanced Schema with full_name in USERS table")
         st.markdown("---")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -673,7 +638,7 @@ def main():
             st.markdown("---")
             
             # Tabs for different views
-            tab1, tab2, tab3 = st.tabs(["📚 My Courses", "📝 Exam Attempts", "🎯 Overall Grades"])
+            tab1, tab2 = st.tabs(["📚 My Courses", "📝 Exam Attempts"])
             
             with tab1:
                 st.subheader("Enrolled Courses")
@@ -690,19 +655,8 @@ def main():
                 if attempts:
                     df = pd.DataFrame(attempts)
                     st.dataframe(df, use_container_width=True, hide_index=True)
-                    st.caption("✨ Letter Grade and Status from EXAM_RESULT table")
                 else:
                     st.info("No exam attempts recorded yet.")
-            
-            with tab3:
-                st.subheader("Overall Course Grades")
-                grades = get_student_overall_grades(student['roll_number'])
-                if grades:
-                    df = pd.DataFrame(grades)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                    st.caption("✨ Overall grades calculated from all exam results")
-                else:
-                    st.info("No grades available yet.")
     
     # Teacher Dashboard
     elif st.session_state.role == "teacher":
@@ -777,8 +731,6 @@ def main():
                                                     if update_exam_attempt_and_result(attempt['attempt_id'], new_score, exam['total_marks']):
                                                         st.success("Score & Result updated!")
                                                         st.rerun()
-                                        
-                                        st.caption("✨ Results automatically saved to EXAM_RESULT table")
                                     else:
                                         st.info("No attempts recorded yet.")
                         else:
@@ -804,21 +756,7 @@ def main():
                         exams = get_course_exams(course_id)
                         
                         # Get enrolled students
-                        conn = get_db_connection()
-                        if conn:
-                            cursor = conn.cursor(dictionary=True)
-                            cursor.execute("""
-                                SELECT s.roll_number, s.name
-                                FROM ENROLLMENT e
-                                JOIN STUDENT s ON e.roll_number = s.roll_number
-                                WHERE e.course_id = %s
-                                ORDER BY s.roll_number
-                            """, (course_id,))
-                            enrolled_students = cursor.fetchall()
-                            cursor.close()
-                            conn.close()
-                        else:
-                            enrolled_students = []
+                        enrolled_students = get_enrolled_students(course_id)
                         
                         if exams and enrolled_students:
                             col1, col2 = st.columns(2)
@@ -995,14 +933,11 @@ def main():
         # View Results Tab
         with tabs[4]:
             st.subheader("All Exam Results")
-            st.info("✨ Results from EXAM_RESULT table (1:1 with EXAM_ATTEMPT)")
-            
             results = get_all_results()
             
             if results:
                 df = pd.DataFrame(results)
                 st.dataframe(df, use_container_width=True, hide_index=True)
-                st.caption("✨ Letter Grade and Status stored in EXAM_RESULT table")
             else:
                 st.info("No exam results available yet.")
 
