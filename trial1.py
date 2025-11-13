@@ -128,7 +128,7 @@ def init_database():
                 course_id INT NOT NULL,
                 FOREIGN KEY (roll_number) REFERENCES STUDENT(roll_number) ON DELETE CASCADE,
                 FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE,
-                UNIQUE KEY unique_enrollment (student_id, course_id)
+                UNIQUE KEY unique_enrollment (roll_number, course_id)
             )
         """)
         
@@ -211,7 +211,7 @@ def get_student_enrollments(roll_number):
             JOIN COURSE c ON e.course_id = c.course_id
             LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
             LEFT JOIN USERS u ON t.user_id = u.user_id
-            WHERE e.student_id = %s
+            WHERE e.roll_number = %s
         """, (roll_number,))
         enrollments = cursor.fetchall()
         cursor.close()
@@ -231,7 +231,7 @@ def get_student_exam_attempts(roll_number):
             JOIN EXAM e ON ea.exam_id = e.exam_id
             JOIN COURSE c ON e.course_id = c.course_id
             LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
-            WHERE ea.student_id = %s
+            WHERE ea.roll_number = %s
             ORDER BY ea.attempt_id DESC
         """, (roll_number,))
         attempts = cursor.fetchall()
@@ -251,7 +251,7 @@ def get_student_overall_grades(roll_number):
             SELECT e.enrollment_id, e.course_id, c.course_code, c.course_name
             FROM ENROLLMENT e
             JOIN COURSE c ON e.course_id = c.course_id
-            WHERE e.student_id = %s
+            WHERE e.roll_number = %s
         """, (roll_number,))
         enrollments = cursor.fetchall()
         
@@ -263,7 +263,7 @@ def get_student_overall_grades(roll_number):
                 FROM EXAM_ATTEMPT ea
                 JOIN EXAM e ON ea.exam_id = e.exam_id
                 LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
-                WHERE ea.student_id = %s AND e.course_id = %s 
+                WHERE ea.roll_number = %s AND e.course_id = %s 
                 AND ea.score_obtained IS NOT NULL
             """, (roll_number, enrollment['course_id']))
             attempts = cursor.fetchall()
@@ -341,7 +341,7 @@ def get_exam_attempts(exam_id):
             SELECT ea.*, s.roll_number, s.name, e.total_marks,
                    er.letter_grade, er.status
             FROM EXAM_ATTEMPT ea
-            JOIN STUDENT s ON ea.student_id = s.roll_number
+            JOIN STUDENT s ON ea.roll_number = s.roll_number
             JOIN EXAM e ON ea.exam_id = e.exam_id
             LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
             WHERE ea.exam_id = %s
@@ -418,7 +418,7 @@ def create_exam_attempt(exam_id, roll_number):
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO EXAM_ATTEMPT (exam_id, student_id, score_obtained)
+                INSERT INTO EXAM_ATTEMPT (exam_id, roll_number, score_obtained)
                 VALUES (%s, %s, NULL)
             """, (exam_id, roll_number))
             conn.commit()
@@ -517,7 +517,7 @@ def enroll_student(roll_number, course_id):
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO ENROLLMENT (student_id, course_id)
+                INSERT INTO ENROLLMENT (roll_number, course_id)
                 VALUES (%s, %s)
             """, (roll_number, course_id))
             conn.commit()
@@ -594,7 +594,7 @@ def get_all_results():
                    er.letter_grade, er.status
             FROM EXAM_RESULT er
             JOIN EXAM_ATTEMPT ea ON er.attempt_id = ea.attempt_id
-            JOIN STUDENT s ON ea.student_id = s.roll_number
+            JOIN STUDENT s ON ea.roll_number = s.roll_number
             JOIN EXAM e ON ea.exam_id = e.exam_id
             JOIN COURSE c ON e.course_id = c.course_id
             ORDER BY s.roll_number, c.course_code
@@ -811,7 +811,7 @@ def main():
                             cursor.execute("""
                                 SELECT s.roll_number, s.name
                                 FROM ENROLLMENT e
-                                JOIN STUDENT s ON e.student_id = s.roll_number
+                                JOIN STUDENT s ON e.roll_number = s.roll_number
                                 WHERE e.course_id = %s
                                 ORDER BY s.roll_number
                             """, (course_id,))
