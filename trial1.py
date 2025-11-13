@@ -65,12 +65,13 @@ def init_database():
     if conn:
         cursor = conn.cursor()
         
-        # Create USERS table
+        # Create USERS table with full_name
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS USERS (
                 user_id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
+                full_name VARCHAR(100) NOT NULL,
                 role ENUM('admin', 'teacher', 'student') NOT NULL
             )
         """)
@@ -143,7 +144,7 @@ def init_database():
             )
         """)
         
-        # Create EXAM_RESULT table (NEW)
+        # Create EXAM_RESULT table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS EXAM_RESULT (
                 result_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -159,8 +160,8 @@ def init_database():
         if not cursor.fetchone():
             admin_pass = hash_password('admin123')
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, role) 
-                VALUES ('admin', %s, 'admin')
+                INSERT INTO USERS (username, password_hash, full_name, role) 
+                VALUES ('admin', %s, 'System Administrator', 'admin')
             """, (admin_pass,))
         
         conn.commit()
@@ -188,7 +189,7 @@ def get_student_by_user_id(user_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT s.*, u.username 
+            SELECT s.*, u.username, u.full_name as user_full_name
             FROM STUDENT s
             JOIN USERS u ON s.user_id = u.user_id
             WHERE s.user_id = %s
@@ -294,7 +295,7 @@ def get_teacher_by_user_id(user_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT t.*, u.username 
+            SELECT t.*, u.username, u.full_name as user_full_name
             FROM TEACHER t
             JOIN USERS u ON t.user_id = u.user_id
             WHERE t.user_id = %s
@@ -438,10 +439,11 @@ def add_student(username, password, roll_number, name, date_of_birth):
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
+            # Include full_name in INSERT
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, role)
-                VALUES (%s, %s, 'student')
-            """, (username, hashed_pass))
+                INSERT INTO USERS (username, password_hash, full_name, role)
+                VALUES (%s, %s, %s, 'student')
+            """, (username, hashed_pass, name))
             user_id = cursor.lastrowid
             
             cursor.execute("""
@@ -466,10 +468,11 @@ def add_teacher(username, password, name, specialization):
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
+            # Include full_name in INSERT
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, role)
-                VALUES (%s, %s, 'teacher')
-            """, (username, hashed_pass))
+                INSERT INTO USERS (username, password_hash, full_name, role)
+                VALUES (%s, %s, %s, 'teacher')
+            """, (username, hashed_pass, name))
             user_id = cursor.lastrowid
             
             cursor.execute("""
@@ -536,7 +539,7 @@ def get_all_teachers():
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT t.teacher_id, t.name, t.specialization, 
-                   u.username
+                   u.username, u.full_name
             FROM TEACHER t
             JOIN USERS u ON t.user_id = u.user_id
             ORDER BY t.name
@@ -553,7 +556,7 @@ def get_all_students():
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT s.roll_number, s.name, s.date_of_birth,
-                   u.username
+                   u.username, u.full_name
             FROM STUDENT s
             JOIN USERS u ON s.user_id = u.user_id
             ORDER BY s.roll_number
@@ -618,7 +621,7 @@ def main():
     # Login Page
     if not st.session_state.logged_in:
         st.title("🎓 Exam Management System")
-        st.caption("Simplified Schema - No phone/full_name in USERS")
+        st.caption("Enhanced Schema with full_name in USERS table")
         st.markdown("---")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -647,7 +650,7 @@ def main():
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['username']}")
+            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
         with col2:
             if st.button("Logout"):
                 st.session_state.logged_in = False
@@ -707,7 +710,7 @@ def main():
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['username']}")
+            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
         with col2:
             if st.button("Logout"):
                 st.session_state.logged_in = False
@@ -850,7 +853,7 @@ def main():
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['username']}")
+            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
         with col2:
             if st.button("Logout"):
                 st.session_state.logged_in = False
