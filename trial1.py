@@ -4,9 +4,11 @@ from mysql.connector import Error
 import pandas as pd
 import hashlib
 from datetime import datetime
-import os
 
 # Database Configuration
+import os
+
+# Try to get from Streamlit secrets first, then environment variables, then defaults
 try:
     DB_CONFIG = {
         'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'interchange.proxy.rlwy.net')),
@@ -24,32 +26,6 @@ except:
         'port': int(os.getenv('DB_PORT', 3306))
     }
 
-# Grading System
-def calculate_grade(marks):
-    """Calculate grade based on marks"""
-    if marks >= 90:
-        return 'O', 10
-    elif marks >= 80:
-        return 'A+', 9
-    elif marks >= 70:
-        return 'A', 8
-    elif marks >= 60:
-        return 'B+', 7
-    elif marks >= 50:
-        return 'B', 6
-    elif marks >= 40:
-        return 'C', 5
-    else:
-        return 'F', 0
-
-def calculate_sgpa(grades_credits):
-    """Calculate SGPA from grades and credits"""
-    total_credits = sum(credit for _, credit in grades_credits)
-    if total_credits == 0:
-        return 0
-    weighted_sum = sum(grade_point * credit for grade_point, credit in grades_credits)
-    return round(weighted_sum / total_credits, 2)
-
 # Database Connection
 def get_db_connection():
     try:
@@ -63,44 +39,38 @@ def get_db_connection():
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Initialize Database based on normalized ER diagram
+# Grading System
+def calculate_grade(score, total_marks):
+    """Calculate letter grade based on percentage"""
+    percentage = (score / total_marks) * 100
+    if percentage >= 90:
+        return 'A', 'Pass'
+    elif percentage >= 80:
+        return 'B', 'Pass'
+    elif percentage >= 70:
+        return 'C', 'Pass'
+    elif percentage >= 60:
+        return 'D', 'Pass'
+    else:
+        return 'F', 'Fail'
+
+# Initialize Database with ER Diagram Schema
 def init_database():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         
-        # ADMINISTRATOR table
+        # USERS table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ADMINISTRATOR (
-                admin_id INT AUTO_INCREMENT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS USERS (
+                user_id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
-                password VARCHAR(255) NOT NULL,
-                email VARCHAR(100),
-                full_name VARCHAR(100) NOT NULL
-            )
-        """)
-        
-        # DEPARTMENT table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS DEPARTMENT (
-                department_id INT AUTO_INCREMENT PRIMARY KEY,
-                department_name VARCHAR(100) NOT NULL,
-                department_code VARCHAR(20) UNIQUE NOT NULL,
-                description TEXT
-            )
-        """)
-        
-        # TEACHER table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS TEACHER (
-                teacher_id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                email VARCHAR(100),
-                password VARCHAR(255) NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                role ENUM('admin', 'teacher', 'student') NOT NULL,
                 full_name VARCHAR(100) NOT NULL,
                 phone VARCHAR(20),
-                department_id INT,
-                FOREIGN KEY (department_id) REFERENCES DEPARTMENT(department_id)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
@@ -108,14 +78,23 @@ def init_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS STUDENT (
                 student_id INT AUTO_INCREMENT PRIMARY KEY,
-                student_number VARCHAR(50) UNIQUE NOT NULL,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                email VARCHAR(100),
-                password VARCHAR(255) NOT NULL,
-                full_name VARCHAR(100) NOT NULL,
-                phone VARCHAR(20),
-                department_id INT,
-                FOREIGN KEY (department_id) REFERENCES DEPARTMENT(department_id)
+                user_id INT UNIQUE NOT NULL,
+                roll_number VARCHAR(20) UNIQUE NOT NULL,
+                date_of_birth DATE,
+                department VARCHAR(50),
+                semester INT,
+                FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
+            )
+        """)
+        
+        # TEACHER table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS TEACHER (
+                teacher_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT UNIQUE NOT NULL,
+                employee_id VARCHAR(20) UNIQUE NOT NULL,
+                specialization VARCHAR(100),
+                FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
             )
         """)
         
@@ -125,41 +104,24 @@ def init_database():
                 course_id INT AUTO_INCREMENT PRIMARY KEY,
                 course_code VARCHAR(20) UNIQUE NOT NULL,
                 course_name VARCHAR(100) NOT NULL,
-                credit_hours INT NOT NULL,
-                semester VARCHAR(20),
-                department_id INT,
+                credits INT DEFAULT 3,
+                semester INT,
                 teacher_id INT,
-                FOREIGN KEY (department_id) REFERENCES DEPARTMENT(department_id),
-                FOREIGN KEY (teacher_id) REFERENCES TEACHER(teacher_id)
+                FOREIGN KEY (teacher_id) REFERENCES TEACHER(teacher_id) ON DELETE SET NULL
             )
         """)
         
-        # ENROLLMENT_REQUEST table
+        # ENROLLMENT table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ENROLLMENT_REQUEST (
-                request_id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id INT,
-                course_id INT,
-                status ENUM('pending', 'accepted', 'rejected') DEFAULT 'pending',
-                FOREIGN KEY (student_id) REFERENCES STUDENT(student_id),
-                FOREIGN KEY (course_id) REFERENCES COURSE(course_id)
-            )
-        """)
-        
-        # COURSE_ENROLLMENT table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS COURSE_ENROLLMENT (
+            CREATE TABLE IF NOT EXISTS ENROLLMENT (
                 enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id INT,
-                course_id INT,
-                request_id INT,
-                academic_year VARCHAR(20),
-                semester VARCHAR(20),
+                student_id INT NOT NULL,
+                course_id INT NOT NULL,
+                enrollment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 status ENUM('active', 'completed', 'dropped') DEFAULT 'active',
-                FOREIGN KEY (student_id) REFERENCES STUDENT(student_id),
-                FOREIGN KEY (course_id) REFERENCES COURSE(course_id),
-                FOREIGN KEY (request_id) REFERENCES ENROLLMENT_REQUEST(request_id),
-                UNIQUE KEY unique_enrollment (student_id, course_id, academic_year, semester)
+                FOREIGN KEY (student_id) REFERENCES STUDENT(student_id) ON DELETE CASCADE,
+                FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE,
+                UNIQUE KEY unique_enrollment (student_id, course_id)
             )
         """)
         
@@ -167,18 +129,13 @@ def init_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS EXAM (
                 exam_id INT AUTO_INCREMENT PRIMARY KEY,
-                course_id INT,
-                teacher_id INT,
+                course_id INT NOT NULL,
                 exam_title VARCHAR(100) NOT NULL,
-                exam_type VARCHAR(50),
-                total_marks INT,
-                duration_minutes INT,
-                status ENUM('draft', 'open', 'closed') DEFAULT 'draft',
-                is_supplementary BOOLEAN DEFAULT FALSE,
-                parent_exam_id INT,
-                FOREIGN KEY (course_id) REFERENCES COURSE(course_id),
-                FOREIGN KEY (teacher_id) REFERENCES TEACHER(teacher_id),
-                FOREIGN KEY (parent_exam_id) REFERENCES EXAM(exam_id)
+                exam_type ENUM('midterm', 'final', 'quiz', 'assignment') NOT NULL,
+                exam_date DATE,
+                total_marks INT NOT NULL,
+                status ENUM('scheduled', 'ongoing', 'completed', 'cancelled') DEFAULT 'scheduled',
+                FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE
             )
         """)
         
@@ -186,59 +143,38 @@ def init_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS EXAM_ATTEMPT (
                 attempt_id INT AUTO_INCREMENT PRIMARY KEY,
-                exam_id INT,
-                student_id INT,
-                attempt_number INT DEFAULT 1,
-                status ENUM('in_progress', 'submitted', 'graded') DEFAULT 'in_progress',
-                FOREIGN KEY (exam_id) REFERENCES EXAM(exam_id),
-                FOREIGN KEY (student_id) REFERENCES STUDENT(student_id)
-            )
-        """)
-        
-        # EXAM_SCORE table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS EXAM_SCORE (
-                score_id INT AUTO_INCREMENT PRIMARY KEY,
-                attempt_id INT,
+                exam_id INT NOT NULL,
+                student_id INT NOT NULL,
+                attempt_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 score_obtained DECIMAL(5,2),
-                max_score DECIMAL(5,2),
-                score_type VARCHAR(50),
-                status ENUM('pending', 'validated') DEFAULT 'pending',
-                FOREIGN KEY (attempt_id) REFERENCES EXAM_ATTEMPT(attempt_id)
+                status ENUM('pending', 'submitted', 'graded') DEFAULT 'pending',
+                FOREIGN KEY (exam_id) REFERENCES EXAM(exam_id) ON DELETE CASCADE,
+                FOREIGN KEY (student_id) REFERENCES STUDENT(student_id) ON DELETE CASCADE,
+                UNIQUE KEY unique_attempt (exam_id, student_id)
             )
         """)
         
-        # COURSE_GRADE table
+        # GRADE table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS COURSE_GRADE (
+            CREATE TABLE IF NOT EXISTS GRADE (
                 grade_id INT AUTO_INCREMENT PRIMARY KEY,
-                enrollment_id INT,
+                enrollment_id INT NOT NULL,
                 total_score DECIMAL(5,2),
-                letter_grade VARCHAR(5),
-                grade_point DECIMAL(3,2),
-                status ENUM('provisional', 'final', 'superseded') DEFAULT 'provisional',
-                grade_version INT DEFAULT 1,
-                is_final BOOLEAN DEFAULT TRUE,
-                FOREIGN KEY (enrollment_id) REFERENCES COURSE_ENROLLMENT(enrollment_id)
+                letter_grade VARCHAR(2),
+                status ENUM('Pass', 'Fail') DEFAULT 'Pass',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (enrollment_id) REFERENCES ENROLLMENT(enrollment_id) ON DELETE CASCADE
             )
         """)
         
         # Insert default admin if not exists
-        cursor.execute("SELECT * FROM ADMINISTRATOR WHERE username = 'admin'")
+        cursor.execute("SELECT * FROM USERS WHERE username = 'admin'")
         if not cursor.fetchone():
             admin_pass = hash_password('admin123')
             cursor.execute("""
-                INSERT INTO ADMINISTRATOR (username, password, email, full_name) 
-                VALUES ('admin', %s, 'admin@system.com', 'System Administrator')
+                INSERT INTO USERS (username, email, password_hash, role, full_name) 
+                VALUES ('admin', 'admin@system.com', %s, 'admin', 'System Administrator')
             """, (admin_pass,))
-        
-        # Insert default department if not exists
-        cursor.execute("SELECT * FROM DEPARTMENT WHERE department_code = 'GEN'")
-        if not cursor.fetchone():
-            cursor.execute("""
-                INSERT INTO DEPARTMENT (department_name, department_code, description)
-                VALUES ('General Studies', 'GEN', 'General department for all students')
-            """)
         
         conn.commit()
         cursor.close()
@@ -250,83 +186,44 @@ def authenticate(username, password, role):
     if conn:
         cursor = conn.cursor(dictionary=True)
         hashed_pass = hash_password(password)
-        
-        if role == 'admin':
-            cursor.execute("""
-                SELECT admin_id as id, username, full_name as name, 'admin' as role
-                FROM ADMINISTRATOR WHERE username = %s AND password = %s
-            """, (username, hashed_pass))
-        elif role == 'teacher':
-            cursor.execute("""
-                SELECT teacher_id as id, username, full_name as name, 'teacher' as role
-                FROM TEACHER WHERE username = %s AND password = %s
-            """, (username, hashed_pass))
-        elif role == 'student':
-            cursor.execute("""
-                SELECT student_id as id, student_number as username, full_name as name, 'student' as role
-                FROM STUDENT WHERE student_number = %s AND password = %s
-            """, (username, hashed_pass))
-        
+        cursor.execute("""
+            SELECT * FROM USERS WHERE username = %s AND password_hash = %s AND role = %s
+        """, (username, hashed_pass, role))
         user = cursor.fetchone()
         cursor.close()
         conn.close()
         return user
     return None
 
-# STUDENT FUNCTIONS
-def get_student_details(student_id):
+# Student Functions
+def get_student_by_user_id(user_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT s.*, d.department_name 
+            SELECT s.*, u.full_name, u.email 
             FROM STUDENT s
-            LEFT JOIN DEPARTMENT d ON s.department_id = d.department_id
-            WHERE s.student_id = %s
-        """, (student_id,))
+            JOIN USERS u ON s.user_id = u.user_id
+            WHERE s.user_id = %s
+        """, (user_id,))
         student = cursor.fetchone()
         cursor.close()
         conn.close()
         return student
     return None
 
-def get_available_courses(student_id):
-    """Get courses available for enrollment"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT c.*, t.full_name as teacher_name, d.department_name
-            FROM COURSE c
-            LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            LEFT JOIN DEPARTMENT d ON c.department_id = d.department_id
-            WHERE c.course_id NOT IN (
-                SELECT course_id FROM COURSE_ENROLLMENT 
-                WHERE student_id = %s AND status = 'active'
-            )
-            AND c.course_id NOT IN (
-                SELECT course_id FROM ENROLLMENT_REQUEST 
-                WHERE student_id = %s AND status = 'pending'
-            )
-        """, (student_id, student_id))
-        courses = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return courses
-    return []
-
 def get_student_enrollments(student_id):
-    """Get student's enrolled courses"""
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT ce.*, c.course_code, c.course_name, c.credit_hours,
-                   t.full_name as teacher_name
-            FROM COURSE_ENROLLMENT ce
-            JOIN COURSE c ON ce.course_id = c.course_id
+            SELECT e.enrollment_id, c.course_code, c.course_name, c.credits, c.semester,
+                   e.status, u.full_name as teacher_name
+            FROM ENROLLMENT e
+            JOIN COURSE c ON e.course_id = c.course_id
             LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            WHERE ce.student_id = %s AND ce.status = 'active'
+            LEFT JOIN USERS u ON t.user_id = u.user_id
+            WHERE e.student_id = %s AND e.status = 'active'
         """, (student_id,))
         enrollments = cursor.fetchall()
         cursor.close()
@@ -334,60 +231,21 @@ def get_student_enrollments(student_id):
         return enrollments
     return []
 
-def send_enrollment_request(student_id, course_id):
-    """Send enrollment request for a course"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO ENROLLMENT_REQUEST (student_id, course_id, status)
-                VALUES (%s, %s, 'pending')
-            """, (student_id, course_id))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
-        except Error as e:
-            st.error(f"Error sending request: {e}")
-            conn.rollback()
-            cursor.close()
-            conn.close()
-            return False
-    return False
-
-def get_student_pending_requests(student_id):
-    """Get student's pending enrollment requests"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT er.*, c.course_code, c.course_name, t.full_name as teacher_name
-            FROM ENROLLMENT_REQUEST er
-            JOIN COURSE c ON er.course_id = c.course_id
-            LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            WHERE er.student_id = %s AND er.status = 'pending'
-        """, (student_id,))
-        requests = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return requests
-    return []
-
 def get_student_exams(student_id):
-    """Get available exams for student's enrolled courses"""
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT e.*, c.course_name, c.course_code
+            SELECT e.exam_id, e.exam_title, e.exam_type, e.exam_date, e.total_marks,
+                   c.course_code, c.course_name,
+                   ea.score_obtained, ea.status as attempt_status
             FROM EXAM e
             JOIN COURSE c ON e.course_id = c.course_id
-            JOIN COURSE_ENROLLMENT ce ON c.course_id = ce.course_id
-            WHERE ce.student_id = %s 
-            AND ce.status = 'active'
-            AND e.status = 'open'
-        """, (student_id,))
+            JOIN ENROLLMENT en ON c.course_id = en.course_id
+            LEFT JOIN EXAM_ATTEMPT ea ON e.exam_id = ea.exam_id AND ea.student_id = %s
+            WHERE en.student_id = %s AND e.status IN ('scheduled', 'ongoing', 'completed')
+            ORDER BY e.exam_date DESC
+        """, (student_id, student_id))
         exams = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -395,18 +253,17 @@ def get_student_exams(student_id):
     return []
 
 def get_student_grades(student_id):
-    """Get student's grades"""
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT cg.*, ce.academic_year, ce.semester,
-                   c.course_code, c.course_name, c.credit_hours
-            FROM COURSE_GRADE cg
-            JOIN COURSE_ENROLLMENT ce ON cg.enrollment_id = ce.enrollment_id
-            JOIN COURSE c ON ce.course_id = c.course_id
-            WHERE ce.student_id = %s AND cg.is_final = TRUE
-            ORDER BY ce.academic_year, ce.semester
+            SELECT c.course_code, c.course_name, c.credits, c.semester,
+                   g.total_score, g.letter_grade, g.status
+            FROM GRADE g
+            JOIN ENROLLMENT e ON g.enrollment_id = e.enrollment_id
+            JOIN COURSE c ON e.course_id = c.course_id
+            WHERE e.student_id = %s
+            ORDER BY c.semester, c.course_code
         """, (student_id,))
         grades = cursor.fetchall()
         cursor.close()
@@ -414,19 +271,33 @@ def get_student_grades(student_id):
         return grades
     return []
 
-# TEACHER FUNCTIONS
-def get_teacher_courses(teacher_id):
-    """Get courses assigned to teacher"""
+# Teacher Functions
+def get_teacher_by_user_id(user_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT c.*, d.department_name,
-                   (SELECT COUNT(*) FROM COURSE_ENROLLMENT 
-                    WHERE course_id = c.course_id AND status = 'active') as enrolled_count
+            SELECT t.*, u.full_name, u.email 
+            FROM TEACHER t
+            JOIN USERS u ON t.user_id = u.user_id
+            WHERE t.user_id = %s
+        """, (user_id,))
+        teacher = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return teacher
+    return None
+
+def get_teacher_courses(teacher_id):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT c.*, COUNT(e.enrollment_id) as student_count
             FROM COURSE c
-            LEFT JOIN DEPARTMENT d ON c.department_id = d.department_id
+            LEFT JOIN ENROLLMENT e ON c.course_id = e.course_id AND e.status = 'active'
             WHERE c.teacher_id = %s
+            GROUP BY c.course_id
         """, (teacher_id,))
         courses = cursor.fetchall()
         cursor.close()
@@ -434,245 +305,135 @@ def get_teacher_courses(teacher_id):
         return courses
     return []
 
-def get_enrollment_requests(teacher_id):
-    """Get enrollment requests for teacher's courses"""
+def get_course_exams(course_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT er.*, s.student_number, s.full_name as student_name,
-                   c.course_code, c.course_name
-            FROM ENROLLMENT_REQUEST er
-            JOIN STUDENT s ON er.student_id = s.student_id
-            JOIN COURSE c ON er.course_id = c.course_id
-            WHERE c.teacher_id = %s AND er.status = 'pending'
-        """, (teacher_id,))
-        requests = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return requests
-    return []
-
-def process_enrollment_request(request_id, action, academic_year, semester):
-    """Accept or reject enrollment request"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        try:
-            # Get request details
-            cursor.execute("""
-                SELECT student_id, course_id FROM ENROLLMENT_REQUEST 
-                WHERE request_id = %s
-            """, (request_id,))
-            request = cursor.fetchone()
-            
-            if action == 'accept':
-                # Update request status
-                cursor.execute("""
-                    UPDATE ENROLLMENT_REQUEST 
-                    SET status = 'accepted' 
-                    WHERE request_id = %s
-                """, (request_id,))
-                
-                # Create enrollment
-                cursor.execute("""
-                    INSERT INTO COURSE_ENROLLMENT 
-                    (student_id, course_id, request_id, academic_year, semester, status)
-                    VALUES (%s, %s, %s, %s, %s, 'active')
-                """, (request['student_id'], request['course_id'], request_id, 
-                      academic_year, semester))
-            else:
-                cursor.execute("""
-                    UPDATE ENROLLMENT_REQUEST 
-                    SET status = 'rejected' 
-                    WHERE request_id = %s
-                """, (request_id,))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
-        except Error as e:
-            st.error(f"Error processing request: {e}")
-            conn.rollback()
-            cursor.close()
-            conn.close()
-            return False
-    return False
-
-def get_course_students(course_id):
-    """Get students enrolled in a course"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT ce.enrollment_id, s.student_id, s.student_number, 
-                   s.full_name, ce.academic_year, ce.semester,
-                   cg.total_score, cg.letter_grade, cg.grade_point
-            FROM COURSE_ENROLLMENT ce
-            JOIN STUDENT s ON ce.student_id = s.student_id
-            LEFT JOIN COURSE_GRADE cg ON ce.enrollment_id = cg.enrollment_id 
-                AND cg.is_final = TRUE
-            WHERE ce.course_id = %s AND ce.status = 'active'
+            SELECT * FROM EXAM WHERE course_id = %s ORDER BY exam_date DESC
         """, (course_id,))
-        students = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return students
-    return []
-
-def get_teacher_exams(teacher_id):
-    """Get exams created by teacher"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT e.*, c.course_code, c.course_name
-            FROM EXAM e
-            JOIN COURSE c ON e.course_id = c.course_id
-            WHERE e.teacher_id = %s
-            ORDER BY e.exam_id DESC
-        """, (teacher_id,))
         exams = cursor.fetchall()
         cursor.close()
         conn.close()
         return exams
     return []
 
-def create_exam(course_id, teacher_id, exam_title, exam_type, total_marks, duration_minutes, is_supplementary=False, parent_exam_id=None):
-    """Create a new exam"""
+def get_exam_attempts(exam_id):
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT ea.*, s.roll_number, u.full_name
+            FROM EXAM_ATTEMPT ea
+            JOIN STUDENT s ON ea.student_id = s.student_id
+            JOIN USERS u ON s.user_id = u.user_id
+            WHERE ea.exam_id = %s
+            ORDER BY u.full_name
+        """, (exam_id,))
+        attempts = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return attempts
+    return []
+
+def create_exam(course_id, exam_title, exam_type, exam_date, total_marks):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO EXAM (course_id, teacher_id, exam_title, exam_type, 
-                                  total_marks, duration_minutes, status, is_supplementary, parent_exam_id)
-                VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s)
-            """, (course_id, teacher_id, exam_title, exam_type, total_marks, 
-                  duration_minutes, is_supplementary, parent_exam_id))
-            exam_id = cursor.lastrowid
+                INSERT INTO EXAM (course_id, exam_title, exam_type, exam_date, total_marks)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (course_id, exam_title, exam_type, exam_date, total_marks))
             conn.commit()
             cursor.close()
             conn.close()
-            return exam_id
+            return True
         except Error as e:
             st.error(f"Error creating exam: {e}")
             conn.rollback()
             cursor.close()
             conn.close()
-            return None
-    return None
+            return False
+    return False
 
-def update_exam_status(exam_id, status):
-    """Update exam status (draft/open/closed)"""
+def update_exam_score(attempt_id, score):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                UPDATE EXAM SET status = %s WHERE exam_id = %s
-            """, (status, exam_id))
+                UPDATE EXAM_ATTEMPT 
+                SET score_obtained = %s, status = 'graded'
+                WHERE attempt_id = %s
+            """, (score, attempt_id))
             conn.commit()
             cursor.close()
             conn.close()
             return True
         except Error as e:
-            st.error(f"Error updating exam: {e}")
+            st.error(f"Error updating score: {e}")
             conn.rollback()
             cursor.close()
             conn.close()
             return False
     return False
 
-def update_course_grade(enrollment_id, total_score):
-    """Update or create course grade"""
-    letter_grade, grade_point = calculate_grade(total_score)
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            # Check if grade exists
-            cursor.execute("""
-                SELECT grade_id FROM COURSE_GRADE 
-                WHERE enrollment_id = %s AND is_final = TRUE
-            """, (enrollment_id,))
-            existing_grade = cursor.fetchone()
-            
-            if existing_grade:
-                # Update existing grade
-                cursor.execute("""
-                    UPDATE COURSE_GRADE 
-                    SET total_score = %s, letter_grade = %s, grade_point = %s
-                    WHERE grade_id = %s
-                """, (total_score, letter_grade, grade_point, existing_grade[0]))
-            else:
-                # Create new grade
-                cursor.execute("""
-                    INSERT INTO COURSE_GRADE 
-                    (enrollment_id, total_score, letter_grade, grade_point, status, is_final)
-                    VALUES (%s, %s, %s, %s, 'final', TRUE)
-                """, (enrollment_id, total_score, letter_grade, grade_point))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
-        except Error as e:
-            st.error(f"Error updating grade: {e}")
-            conn.rollback()
-            cursor.close()
-            conn.close()
-            return False
-    return False
-
-# ADMIN FUNCTIONS
-def add_department(dept_name, dept_code, description):
-    """Add new department"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO DEPARTMENT (department_name, department_code, description)
-                VALUES (%s, %s, %s)
-            """, (dept_name, dept_code, description))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return True
-        except Error as e:
-            st.error(f"Error adding department: {e}")
-            conn.rollback()
-            cursor.close()
-            conn.close()
-            return False
-    return False
-
-def get_all_departments():
-    """Get all departments"""
+def calculate_course_grade(enrollment_id):
+    """Calculate final grade for a course based on all exam attempts"""
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM DEPARTMENT ORDER BY department_name")
-        departments = cursor.fetchall()
+        cursor.execute("""
+            SELECT e.course_id, SUM(ea.score_obtained) as total_score, 
+                   SUM(ex.total_marks) as total_possible
+            FROM ENROLLMENT e
+            JOIN EXAM ex ON e.course_id = ex.course_id
+            LEFT JOIN EXAM_ATTEMPT ea ON ex.exam_id = ea.exam_id 
+                AND ea.student_id = e.student_id AND ea.status = 'graded'
+            WHERE e.enrollment_id = %s
+            GROUP BY e.enrollment_id
+        """, (enrollment_id,))
+        result = cursor.fetchone()
+        
+        if result and result['total_possible']:
+            total_score = result['total_score'] or 0
+            total_possible = result['total_possible']
+            letter_grade, status = calculate_grade(total_score, total_possible)
+            
+            # Update or insert grade
+            cursor.execute("""
+                INSERT INTO GRADE (enrollment_id, total_score, letter_grade, status)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    total_score = %s, letter_grade = %s, status = %s
+            """, (enrollment_id, total_score, letter_grade, status, 
+                  total_score, letter_grade, status))
+            conn.commit()
+        
         cursor.close()
         conn.close()
-        return departments
-    return []
+        return True
+    return False
 
-def add_student(student_number, username, email, password, full_name, phone, department_id):
-    """Add new student"""
+# Admin Functions
+def add_student(username, email, password, full_name, phone, roll_number, dob, department, semester):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
             cursor.execute("""
-                INSERT INTO STUDENT (student_number, username, email, password, 
-                                     full_name, phone, department_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (student_number, username, email, hashed_pass, full_name, phone, department_id))
+                INSERT INTO USERS (username, email, password_hash, role, full_name, phone)
+                VALUES (%s, %s, %s, 'student', %s, %s)
+            """, (username, email, hashed_pass, full_name, phone))
+            user_id = cursor.lastrowid
+            
+            cursor.execute("""
+                INSERT INTO STUDENT (user_id, roll_number, date_of_birth, department, semester)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, roll_number, dob, department, semester))
+            
             conn.commit()
             cursor.close()
             conn.close()
@@ -685,17 +446,23 @@ def add_student(student_number, username, email, password, full_name, phone, dep
             return False
     return False
 
-def add_teacher(username, email, password, full_name, phone, department_id):
-    """Add new teacher"""
+def add_teacher(username, email, password, full_name, phone, employee_id, specialization):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
             cursor.execute("""
-                INSERT INTO TEACHER (username, email, password, full_name, phone, department_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (username, email, hashed_pass, full_name, phone, department_id))
+                INSERT INTO USERS (username, email, password_hash, role, full_name, phone)
+                VALUES (%s, %s, %s, 'teacher', %s, %s)
+            """, (username, email, hashed_pass, full_name, phone))
+            user_id = cursor.lastrowid
+            
+            cursor.execute("""
+                INSERT INTO TEACHER (user_id, employee_id, specialization)
+                VALUES (%s, %s, %s)
+            """, (user_id, employee_id, specialization))
+            
             conn.commit()
             cursor.close()
             conn.close()
@@ -708,17 +475,15 @@ def add_teacher(username, email, password, full_name, phone, department_id):
             return False
     return False
 
-def add_course(course_code, course_name, credit_hours, semester, department_id, teacher_id):
-    """Add new course"""
+def add_course(course_code, course_name, credits, semester, teacher_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO COURSE (course_code, course_name, credit_hours, 
-                                    semester, department_id, teacher_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (course_code, course_name, credit_hours, semester, department_id, teacher_id))
+                INSERT INTO COURSE (course_code, course_name, credits, semester, teacher_id)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (course_code, course_name, credits, semester, teacher_id))
             conn.commit()
             cursor.close()
             conn.close()
@@ -731,33 +496,36 @@ def add_course(course_code, course_name, credit_hours, semester, department_id, 
             return False
     return False
 
-def get_all_students():
-    """Get all students"""
+def enroll_student_in_course(student_id, course_id):
     conn = get_db_connection()
     if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT s.*, d.department_name 
-            FROM STUDENT s
-            LEFT JOIN DEPARTMENT d ON s.department_id = d.department_id
-            ORDER BY s.student_number
-        """)
-        students = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return students
-    return []
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO ENROLLMENT (student_id, course_id)
+                VALUES (%s, %s)
+            """, (student_id, course_id))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        except Error as e:
+            st.error(f"Error enrolling student: {e}")
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return False
+    return False
 
 def get_all_teachers():
-    """Get all teachers"""
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT t.*, d.department_name 
+            SELECT t.teacher_id, t.employee_id, t.specialization, u.full_name, u.email
             FROM TEACHER t
-            LEFT JOIN DEPARTMENT d ON t.department_id = d.department_id
-            ORDER BY t.full_name
+            JOIN USERS u ON t.user_id = u.user_id
+            ORDER BY u.full_name
         """)
         teachers = cursor.fetchall()
         cursor.close()
@@ -765,16 +533,32 @@ def get_all_teachers():
         return teachers
     return []
 
-def get_all_courses():
-    """Get all courses"""
+def get_all_students():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT c.*, d.department_name, t.full_name as teacher_name
+            SELECT s.student_id, s.roll_number, s.date_of_birth, s.department, s.semester,
+                   u.full_name, u.email, u.phone
+            FROM STUDENT s
+            JOIN USERS u ON s.user_id = u.user_id
+            ORDER BY s.roll_number
+        """)
+        students = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return students
+    return []
+
+def get_all_courses():
+    conn = get_db_connection()
+    if conn:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT c.*, u.full_name as teacher_name
             FROM COURSE c
-            LEFT JOIN DEPARTMENT d ON c.department_id = d.department_id
             LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
+            LEFT JOIN USERS u ON t.user_id = u.user_id
             ORDER BY c.semester, c.course_code
         """)
         courses = cursor.fetchall()
@@ -783,39 +567,9 @@ def get_all_courses():
         return courses
     return []
 
-def get_system_stats():
-    """Get system statistics"""
-    conn = get_db_connection()
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        stats = {}
-        
-        cursor.execute("SELECT COUNT(*) as count FROM STUDENT")
-        stats['students'] = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM TEACHER")
-        stats['teachers'] = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM COURSE")
-        stats['courses'] = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM DEPARTMENT")
-        stats['departments'] = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM EXAM")
-        stats['exams'] = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM ENROLLMENT_REQUEST WHERE status = 'pending'")
-        stats['pending_requests'] = cursor.fetchone()['count']
-        
-        cursor.close()
-        conn.close()
-        return stats
-    return {}
-
-# STREAMLIT UI
+# Streamlit UI
 def main():
-    st.set_page_config(page_title="Exam Result Management System", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title="Exam Management System", layout="wide")
     
     # Initialize database
     init_database()
@@ -828,20 +582,15 @@ def main():
     
     # Login Page
     if not st.session_state.logged_in:
-        st.title("🎓 Examination & Results Management System")
+        st.title("🎓 Exam Management System")
         st.markdown("---")
         
         col1, col2, col3 = st.columns([1, 2, 1])
         
         with col2:
-            st.subheader("🔐 Login")
+            st.subheader("Login")
             role = st.selectbox("Select Role", ["student", "teacher", "admin"])
-            
-            if role == "student":
-                username = st.text_input("Student Number")
-            else:
-                username = st.text_input("Username")
-            
+            username = st.text_input("Username")
             password = st.text_input("Password", type="password")
             
             if st.button("Login", use_container_width=True):
@@ -852,17 +601,17 @@ def main():
                     st.session_state.role = role
                     st.rerun()
                 else:
-                    st.error("❌ Invalid credentials!")
+                    st.error("Invalid credentials!")
     
-    # STUDENT DASHBOARD
+    # Student Dashboard
     elif st.session_state.role == "student":
         st.title("📚 Student Dashboard")
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['name']}")
+            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
         with col2:
-            if st.button("🚪 Logout"):
+            if st.button("Logout"):
                 st.session_state.logged_in = False
                 st.session_state.user = None
                 st.session_state.role = None
@@ -870,136 +619,250 @@ def main():
         
         st.markdown("---")
         
-        student_id = st.session_state.user['id']
-        student = get_student_details(student_id)
+        tabs = st.tabs(["➕ Add Data", "👥 View Students", "👨‍🏫 View Teachers", "📚 View Courses", "📋 Enrollments"])
+        
+        # Add Data Tab
+        with tabs[0]:
+            add_tabs = st.tabs(["Add Student", "Add Teacher", "Add Course", "Enroll Student"])
+            
+            with add_tabs[0]:
+                st.subheader("Add New Student")
+                col1, col2 = st.columns(2)
+                with col1:
+                    username = st.text_input("Username")
+                    email = st.text_input("Email")
+                    full_name = st.text_input("Full Name")
+                    roll_number = st.text_input("Roll Number")
+                with col2:
+                    password = st.text_input("Password", type="password", key="student_pass")
+                    phone = st.text_input("Phone")
+                    dob = st.date_input("Date of Birth")
+                    department = st.text_input("Department")
+                
+                semester = st.number_input("Semester", min_value=1, max_value=8, value=1)
+                
+                if st.button("Add Student"):
+                    if all([username, email, password, full_name, roll_number, department]):
+                        if add_student(username, email, password, full_name, phone, 
+                                     roll_number, dob, department, semester):
+                            st.success(f"Student {full_name} added successfully!")
+                        else:
+                            st.error("Failed to add student")
+                    else:
+                        st.warning("Please fill all required fields")
+            
+            with add_tabs[1]:
+                st.subheader("Add New Teacher")
+                col1, col2 = st.columns(2)
+                with col1:
+                    teacher_username = st.text_input("Username", key="teacher_username")
+                    teacher_email = st.text_input("Email", key="teacher_email")
+                    teacher_name = st.text_input("Full Name", key="teacher_name")
+                with col2:
+                    teacher_password = st.text_input("Password", type="password", key="teacher_pass")
+                    teacher_phone = st.text_input("Phone", key="teacher_phone")
+                    employee_id = st.text_input("Employee ID")
+                
+                specialization = st.text_input("Specialization")
+                
+                if st.button("Add Teacher"):
+                    if all([teacher_username, teacher_email, teacher_password, teacher_name, employee_id]):
+                        if add_teacher(teacher_username, teacher_email, teacher_password, 
+                                     teacher_name, teacher_phone, employee_id, specialization):
+                            st.success(f"Teacher {teacher_name} added successfully!")
+                        else:
+                            st.error("Failed to add teacher")
+                    else:
+                        st.warning("Please fill all required fields")
+            
+            with add_tabs[2]:
+                st.subheader("Add New Course")
+                col1, col2 = st.columns(2)
+                with col1:
+                    course_code = st.text_input("Course Code")
+                    course_name = st.text_input("Course Name")
+                with col2:
+                    credits = st.number_input("Credits", min_value=1, max_value=6, value=3)
+                    course_semester = st.number_input("Semester", min_value=1, max_value=8, value=1, key="course_sem")
+                
+                teachers = get_all_teachers()
+                if teachers:
+                    teacher_options = {f"{t['full_name']} ({t['employee_id']})": t['teacher_id'] for t in teachers}
+                    selected_teacher = st.selectbox("Assign Teacher", list(teacher_options.keys()))
+                    teacher_id = teacher_options[selected_teacher]
+                else:
+                    st.warning("No teachers available. Please add teachers first.")
+                    teacher_id = None
+                
+                if st.button("Add Course"):
+                    if course_code and course_name and teacher_id:
+                        if add_course(course_code, course_name, credits, course_semester, teacher_id):
+                            st.success(f"Course {course_name} added successfully!")
+                        else:
+                            st.error("Failed to add course")
+                    else:
+                        st.warning("Please fill all fields and select a teacher")
+            
+            with add_tabs[3]:
+                st.subheader("Enroll Student in Course")
+                students = get_all_students()
+                courses = get_all_courses()
+                
+                if students and courses:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        student_options = {f"{s['roll_number']} - {s['full_name']}": s['student_id'] for s in students}
+                        selected_student = st.selectbox("Select Student", list(student_options.keys()))
+                        student_id = student_options[selected_student]
+                    
+                    with col2:
+                        course_options = {f"{c['course_code']} - {c['course_name']}": c['course_id'] for c in courses}
+                        selected_course = st.selectbox("Select Course", list(course_options.keys()))
+                        enroll_course_id = course_options[selected_course]
+                    
+                    if st.button("Enroll Student"):
+                        if enroll_student_in_course(student_id, enroll_course_id):
+                            st.success("Student enrolled successfully!")
+                        else:
+                            st.error("Failed to enroll student. May already be enrolled.")
+                else:
+                    st.warning("Please add students and courses first.")
+        
+        # View Students Tab
+        with tabs[1]:
+            st.subheader("All Students")
+            students = get_all_students()
+            if students:
+                df = pd.DataFrame(students)
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("No students found.")
+        
+        # View Teachers Tab
+        with tabs[2]:
+            st.subheader("All Teachers")
+            teachers = get_all_teachers()
+            if teachers:
+                df = pd.DataFrame(teachers)
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("No teachers found.")
+        
+        # View Courses Tab
+        with tabs[3]:
+            st.subheader("All Courses")
+            courses = get_all_courses()
+            if courses:
+                df = pd.DataFrame(courses)
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("No courses found.")
+        
+        # Enrollments Tab
+        with tabs[4]:
+            st.subheader("Enrollment Management")
+            
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT e.enrollment_id, s.roll_number, u.full_name as student_name,
+                           c.course_code, c.course_name, e.status, e.enrollment_date
+                    FROM ENROLLMENT e
+                    JOIN STUDENT s ON e.student_id = s.student_id
+                    JOIN USERS u ON s.user_id = u.user_id
+                    JOIN COURSE c ON e.course_id = c.course_id
+                    ORDER BY e.enrollment_date DESC
+                """)
+                enrollments = cursor.fetchall()
+                cursor.close()
+                conn.close()
+                
+                if enrollments:
+                    df = pd.DataFrame(enrollments)
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.info("No enrollments found.")
+
+if __name__ == "__main__":
+    main(), {st.session_state.user['full_name']}")
+        with col2:
+            if st.button("Logout"):
+                st.session_state.logged_in = False
+                st.session_state.user = None
+                st.session_state.role = None
+                st.rerun()
+        
+        st.markdown("---")
+        
+        student = get_student_by_user_id(st.session_state.user['user_id'])
         
         if student:
-            # Student Info Card
-            with st.container():
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Student Number", student['student_number'])
-                col2.metric("Name", student['full_name'])
-                col3.metric("Email", student['email'] or 'N/A')
-                col4.metric("Department", student['department_name'] or 'N/A')
+            # Student Details
+            st.subheader("📋 Student Information")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Roll Number", student['roll_number'])
+            col2.metric("Department", student['department'])
+            col3.metric("Semester", student['semester'])
+            col4.metric("Email", student['email'])
             
             st.markdown("---")
             
             # Tabs
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📖 My Courses", 
-                "➕ Enroll in Course", 
-                "⏳ Pending Requests",
-                "📝 Available Exams",
-                "📊 My Grades"
-            ])
+            tab1, tab2, tab3 = st.tabs(["📚 My Courses", "📝 Exams", "📊 Grades"])
             
-            # Tab 1: My Courses
             with tab1:
-                st.subheader("📖 My Enrolled Courses")
-                enrollments = get_student_enrollments(student_id)
-                
+                st.subheader("Enrolled Courses")
+                enrollments = get_student_enrollments(student['student_id'])
                 if enrollments:
-                    for enrollment in enrollments:
-                        with st.expander(f"{enrollment['course_code']} - {enrollment['course_name']}"):
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.write(f"**Teacher:** {enrollment['teacher_name']}")
-                                st.write(f"**Credits:** {enrollment['credit_hours']}")
-                            with col2:
-                                st.write(f"**Academic Year:** {enrollment['academic_year']}")
-                                st.write(f"**Semester:** {enrollment['semester']}")
+                    df = pd.DataFrame(enrollments)
+                    st.dataframe(df, use_container_width=True)
                 else:
                     st.info("You are not enrolled in any courses yet.")
             
-            # Tab 2: Enroll in Course
             with tab2:
-                st.subheader("➕ Available Courses for Enrollment")
-                available_courses = get_available_courses(student_id)
-                
-                if available_courses:
-                    for course in available_courses:
-                        with st.expander(f"{course['course_code']} - {course['course_name']}"):
-                            col1, col2, col3 = st.columns([2, 2, 1])
-                            with col1:
-                                st.write(f"**Teacher:** {course['teacher_name']}")
-                                st.write(f"**Department:** {course['department_name']}")
-                            with col2:
-                                st.write(f"**Credits:** {course['credit_hours']}")
-                                st.write(f"**Semester:** {course['semester']}")
-                            with col3:
-                                if st.button("Send Request", key=f"req_{course['course_id']}"):
-                                    if send_enrollment_request(student_id, course['course_id']):
-                                        st.success("✅ Request sent!")
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Failed to send request")
-                else:
-                    st.info("No courses available for enrollment.")
-            
-            # Tab 3: Pending Requests
-            with tab3:
-                st.subheader("⏳ Your Pending Enrollment Requests")
-                pending_requests = get_student_pending_requests(student_id)
-                
-                if pending_requests:
-                    for req in pending_requests:
-                        with st.container():
-                            st.write(f"**{req['course_code']} - {req['course_name']}**")
-                            st.write(f"Teacher: {req['teacher_name']}")
-                            st.write(f"Status: 🟡 Pending")
-                            st.markdown("---")
-                else:
-                    st.info("No pending requests.")
-            
-            # Tab 4: Available Exams
-            with tab4:
-                st.subheader("📝 Available Exams")
-                exams = get_student_exams(student_id)
-                
+                st.subheader("Your Exams")
+                exams = get_student_exams(student['student_id'])
                 if exams:
                     for exam in exams:
-                        with st.expander(f"{exam['exam_title']} - {exam['course_name']}"):
+                        with st.expander(f"{exam['course_code']} - {exam['exam_title']} ({exam['exam_type']})"):
                             col1, col2 = st.columns(2)
                             with col1:
-                                st.write(f"**Course:** {exam['course_code']}")
-                                st.write(f"**Type:** {exam['exam_type']}")
+                                st.write(f"**Course:** {exam['course_name']}")
+                                st.write(f"**Date:** {exam['exam_date']}")
                                 st.write(f"**Total Marks:** {exam['total_marks']}")
                             with col2:
-                                st.write(f"**Duration:** {exam['duration_minutes']} minutes")
-                                st.write(f"**Status:** {'🔴 Supplementary' if exam['is_supplementary'] else '🟢 Regular'}")
-                            
-                            st.button("Take Exam", key=f"exam_{exam['exam_id']}")
+                                if exam['score_obtained'] is not None:
+                                    st.write(f"**Your Score:** {exam['score_obtained']}/{exam['total_marks']}")
+                                    percentage = (exam['score_obtained'] / exam['total_marks']) * 100
+                                    st.write(f"**Percentage:** {percentage:.2f}%")
+                                else:
+                                    st.info("Not yet graded")
                 else:
-                    st.info("No exams available at the moment.")
+                    st.info("No exams scheduled yet.")
             
-            # Tab 5: My Grades
-            with tab5:
-                st.subheader("📊 My Grades")
-                grades = get_student_grades(student_id)
-                
+            with tab3:
+                st.subheader("Your Grades")
+                grades = get_student_grades(student['student_id'])
                 if grades:
                     df = pd.DataFrame(grades)
-                    df = df[['course_code', 'course_name', 'credit_hours', 'total_score', 
-                            'letter_grade', 'grade_point', 'academic_year', 'semester']]
                     st.dataframe(df, use_container_width=True)
                     
-                    # Calculate SGPA
-                    if len(grades) > 0:
-                        grades_credits = [(g['grade_point'], g['credit_hours']) for g in grades]
-                        sgpa = calculate_sgpa(grades_credits)
-                        st.success(f"**Overall SGPA: {sgpa}**")
+                    # Calculate overall performance
+                    total_credits = sum([g['credits'] for g in grades if g['letter_grade'] != 'F'])
+                    st.success(f"**Total Credits Earned:** {total_credits}")
                 else:
                     st.info("No grades available yet.")
     
-    # TEACHER DASHBOARD
+    # Teacher Dashboard
     elif st.session_state.role == "teacher":
         st.title("👨‍🏫 Teacher Dashboard")
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['name']}")
+            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
         with col2:
-            if st.button("🚪 Logout"):
+            if st.button("Logout"):
                 st.session_state.logged_in = False
                 st.session_state.user = None
                 st.session_state.role = None
@@ -1007,381 +870,91 @@ def main():
         
         st.markdown("---")
         
-        teacher_id = st.session_state.user['id']
+        teacher = get_teacher_by_user_id(st.session_state.user['user_id'])
         
-        # Tabs
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "📚 My Courses",
-            "📩 Enrollment Requests",
-            "📝 Manage Exams",
-            "📊 Grade Students"
-        ])
-        
-        # Tab 1: My Courses
-        with tab1:
-            st.subheader("📚 My Assigned Courses")
-            courses = get_teacher_courses(teacher_id)
+        if teacher:
+            courses = get_teacher_courses(teacher['teacher_id'])
             
             if courses:
-                for course in courses:
-                    with st.expander(f"{course['course_code']} - {course['course_name']}"):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write(f"**Credits:** {course['credit_hours']}")
-                            st.write(f"**Semester:** {course['semester']}")
-                        with col2:
-                            st.write(f"**Department:** {course['department_name']}")
-                            st.write(f"**Enrolled Students:** {course['enrolled_count']}")
-                        with col3:
-                            st.write(f"**Course ID:** {course['course_id']}")
-            else:
-                st.info("You have no assigned courses yet.")
-        
-        # Tab 2: Enrollment Requests
-        with tab2:
-            st.subheader("📩 Pending Enrollment Requests")
-            requests = get_enrollment_requests(teacher_id)
-            
-            if requests:
-                for req in requests:
-                    with st.container():
-                        st.write(f"**Student:** {req['student_name']} ({req['student_number']})")
-                        st.write(f"**Course:** {req['course_code']} - {req['course_name']}")
-                        
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            academic_year = st.text_input("Academic Year", "2024-2025", 
-                                                         key=f"year_{req['request_id']}")
-                        with col2:
-                            semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"], 
-                                                   key=f"sem_{req['request_id']}")
-                        with col3:
-                            if st.button("✅ Accept", key=f"accept_{req['request_id']}"):
-                                if process_enrollment_request(req['request_id'], 'accept', 
-                                                             academic_year, semester):
-                                    st.success("Request accepted!")
-                                    st.rerun()
-                        with col4:
-                            if st.button("❌ Reject", key=f"reject_{req['request_id']}"):
-                                if process_enrollment_request(req['request_id'], 'reject', 
-                                                             academic_year, semester):
-                                    st.success("Request rejected!")
-                                    st.rerun()
-                        
-                        st.markdown("---")
-            else:
-                st.info("No pending enrollment requests.")
-        
-        # Tab 3: Manage Exams
-        with tab3:
-            st.subheader("📝 Manage Exams")
-            
-            # Create New Exam
-            with st.expander("➕ Create New Exam"):
-                courses = get_teacher_courses(teacher_id)
-                if courses:
-                    course_options = {f"{c['course_code']} - {c['course_name']}": c['course_id'] 
-                                     for c in courses}
-                    selected_course = st.selectbox("Select Course", list(course_options.keys()))
-                    course_id = course_options[selected_course]
-                    
+                # Course Selection
+                st.subheader("📚 Your Courses")
+                course_options = {f"{c['course_code']} - {c['course_name']} (Students: {c['student_count']})": c['course_id'] 
+                                for c in courses}
+                selected_course = st.selectbox("Select Course", list(course_options.keys()))
+                course_id = course_options[selected_course]
+                
+                st.markdown("---")
+                
+                # Tabs
+                tab1, tab2 = st.tabs(["📝 Manage Exams", "✏️ Grade Exams"])
+                
+                with tab1:
+                    st.subheader("Create New Exam")
                     col1, col2 = st.columns(2)
                     with col1:
                         exam_title = st.text_input("Exam Title")
-                        exam_type = st.selectbox("Exam Type", ["Midterm", "Final", "Quiz", "CA"])
-                        total_marks = st.number_input("Total Marks", min_value=1, max_value=100, value=20)
+                        exam_type = st.selectbox("Exam Type", ["midterm", "final", "quiz", "assignment"])
                     with col2:
-                        duration = st.number_input("Duration (minutes)", min_value=10, max_value=300, value=60)
-                        is_supplementary = st.checkbox("Supplementary Exam")
-                        parent_exam_id = None
-                        if is_supplementary:
-                            parent_exam_id = st.number_input("Parent Exam ID", min_value=1)
+                        exam_date = st.date_input("Exam Date")
+                        total_marks = st.number_input("Total Marks", min_value=1, value=100)
                     
                     if st.button("Create Exam"):
                         if exam_title:
-                            exam_id = create_exam(course_id, teacher_id, exam_title, exam_type, 
-                                                 total_marks, duration, is_supplementary, parent_exam_id)
-                            if exam_id:
-                                st.success(f"✅ Exam created successfully! Exam ID: {exam_id}")
+                            if create_exam(course_id, exam_title, exam_type, exam_date, total_marks):
+                                st.success("Exam created successfully!")
                                 st.rerun()
                         else:
-                            st.warning("Please fill in all required fields.")
-            
-            # View Existing Exams
-            st.markdown("### My Exams")
-            exams = get_teacher_exams(teacher_id)
-            
-            if exams:
-                for exam in exams:
-                    with st.expander(f"{exam['exam_title']} - {exam['course_name']}"):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write(f"**Type:** {exam['exam_type']}")
-                            st.write(f"**Marks:** {exam['total_marks']}")
-                        with col2:
-                            st.write(f"**Duration:** {exam['duration_minutes']} min")
-                            st.write(f"**Status:** {exam['status']}")
-                        with col3:
-                            if exam['status'] == 'draft':
-                                if st.button("Open Exam", key=f"open_{exam['exam_id']}"):
-                                    if update_exam_status(exam['exam_id'], 'open'):
-                                        st.success("Exam opened!")
-                                        st.rerun()
-                            elif exam['status'] == 'open':
-                                if st.button("Close Exam", key=f"close_{exam['exam_id']}"):
-                                    if update_exam_status(exam['exam_id'], 'closed'):
-                                        st.success("Exam closed!")
-                                        st.rerun()
-            else:
-                st.info("No exams created yet.")
-        
-        # Tab 4: Grade Students
-        with tab4:
-            st.subheader("📊 Grade Students")
-            courses = get_teacher_courses(teacher_id)
-            
-            if courses:
-                course_options = {f"{c['course_code']} - {c['course_name']}": c['course_id'] 
-                                 for c in courses}
-                selected_course = st.selectbox("Select Course", list(course_options.keys()), 
-                                              key="grade_course")
-                course_id = course_options[selected_course]
-                
-                students = get_course_students(course_id)
-                
-                if students:
-                    st.write(f"**Total Students:** {len(students)}")
+                            st.warning("Please enter exam title")
                     
-                    for student in students:
-                        with st.expander(f"{student['student_number']} - {student['full_name']}"):
-                            col1, col2, col3 = st.columns([2, 2, 1])
-                            
-                            with col1:
-                                st.write(f"**Academic Year:** {student['academic_year']}")
-                                st.write(f"**Semester:** {student['semester']}")
-                            
-                            with col2:
-                                current_score = student['total_score'] if student['total_score'] else 0
-                                st.write(f"**Current Score:** {current_score}")
-                                if student['letter_grade']:
-                                    st.write(f"**Grade:** {student['letter_grade']} (GP: {student['grade_point']})")
-                            
-                            with col3:
-                                new_score = st.number_input("Update Score", min_value=0.0, 
-                                                           max_value=20.0, value=float(current_score),
-                                                           key=f"score_{student['enrollment_id']}")
-                                
-                                if st.button("Update", key=f"btn_{student['enrollment_id']}"):
-                                    if update_course_grade(student['enrollment_id'], new_score):
-                                        st.success("✅ Grade updated!")
-                                        st.rerun()
-                else:
-                    st.info("No students enrolled in this course.")
+                    st.markdown("---")
+                    st.subheader("Existing Exams")
+                    exams = get_course_exams(course_id)
+                    if exams:
+                        df = pd.DataFrame(exams)
+                        st.dataframe(df, use_container_width=True)
+                    else:
+                        st.info("No exams created yet.")
+                
+                with tab2:
+                    st.subheader("Grade Exam Attempts")
+                    exams = get_course_exams(course_id)
+                    if exams:
+                        exam_options = {f"{e['exam_title']} ({e['exam_type']})": e['exam_id'] for e in exams}
+                        selected_exam = st.selectbox("Select Exam", list(exam_options.keys()))
+                        exam_id = exam_options[selected_exam]
+                        
+                        attempts = get_exam_attempts(exam_id)
+                        if attempts:
+                            for attempt in attempts:
+                                with st.expander(f"{attempt['roll_number']} - {attempt['full_name']}"):
+                                    col1, col2 = st.columns([2, 1])
+                                    with col1:
+                                        st.write(f"**Status:** {attempt['status']}")
+                                        current_score = attempt['score_obtained'] if attempt['score_obtained'] else 0
+                                        st.write(f"**Current Score:** {current_score}")
+                                    with col2:
+                                        new_score = st.number_input(
+                                            "Score",
+                                            min_value=0.0,
+                                            max_value=float(exams[0]['total_marks']),
+                                            value=float(current_score),
+                                            key=f"score_{attempt['attempt_id']}"
+                                        )
+                                        if st.button("Update", key=f"btn_{attempt['attempt_id']}"):
+                                            if update_exam_score(attempt['attempt_id'], new_score):
+                                                st.success("Score updated!")
+                                                st.rerun()
+                        else:
+                            st.info("No attempts for this exam yet.")
+                    else:
+                        st.info("Create exams first to grade them.")
             else:
-                st.info("You have no assigned courses.")
+                st.info("You are not assigned to any courses yet.")
     
-    # ADMIN DASHBOARD
+    # Admin Dashboard
     elif st.session_state.role == "admin":
-        st.title("⚙️ Administrator Dashboard")
+        st.title("⚙️ Admin Dashboard")
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['name']}")
-        with col2:
-            if st.button("🚪 Logout"):
-                st.session_state.logged_in = False
-                st.session_state.user = None
-                st.session_state.role = None
-                st.rerun()
-        
-        st.markdown("---")
-        
-        # System Statistics
-        stats = get_system_stats()
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        col1.metric("Students", stats.get('students', 0))
-        col2.metric("Teachers", stats.get('teachers', 0))
-        col3.metric("Courses", stats.get('courses', 0))
-        col4.metric("Departments", stats.get('departments', 0))
-        col5.metric("Exams", stats.get('exams', 0))
-        col6.metric("Pending Requests", stats.get('pending_requests', 0))
-        
-        st.markdown("---")
-        
-        # Tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "➕ Add Data",
-            "👥 View Students",
-            "👨‍🏫 View Teachers",
-            "📚 View Courses",
-            "🏢 View Departments"
-        ])
-        
-        # Tab 1: Add Data
-        with tab1:
-            add_tabs = st.tabs(["Add Department", "Add Student", "Add Teacher", "Add Course"])
-            
-            # Add Department
-            with add_tabs[0]:
-                st.subheader("➕ Add New Department")
-                col1, col2 = st.columns(2)
-                with col1:
-                    dept_name = st.text_input("Department Name")
-                    dept_code = st.text_input("Department Code")
-                with col2:
-                    dept_desc = st.text_area("Description")
-                
-                if st.button("Add Department"):
-                    if dept_name and dept_code:
-                        if add_department(dept_name, dept_code, dept_desc):
-                            st.success("✅ Department added successfully!")
-                        else:
-                            st.error("❌ Failed to add department")
-                    else:
-                        st.warning("Please fill in all required fields.")
-            
-            # Add Student
-            with add_tabs[1]:
-                st.subheader("➕ Add New Student")
-                departments = get_all_departments()
-                
-                if departments:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        student_number = st.text_input("Student Number")
-                        username = st.text_input("Username", key="student_username")
-                        email = st.text_input("Email", key="student_email")
-                        full_name = st.text_input("Full Name", key="student_name")
-                    with col2:
-                        phone = st.text_input("Phone", key="student_phone")
-                        dept_options = {d['department_name']: d['department_id'] for d in departments}
-                        selected_dept = st.selectbox("Department", list(dept_options.keys()), 
-                                                    key="student_dept")
-                        dept_id = dept_options[selected_dept]
-                        password = st.text_input("Password", type="password", key="student_pass")
-                    
-                    if st.button("Add Student"):
-                        if student_number and username and full_name and password:
-                            if add_student(student_number, username, email, password, 
-                                         full_name, phone, dept_id):
-                                st.success("✅ Student added successfully!")
-                            else:
-                                st.error("❌ Failed to add student")
-                        else:
-                            st.warning("Please fill in all required fields.")
-                else:
-                    st.warning("Please add departments first.")
-            
-            # Add Teacher
-            with add_tabs[2]:
-                st.subheader("➕ Add New Teacher")
-                departments = get_all_departments()
-                
-                if departments:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        teacher_username = st.text_input("Username", key="teacher_username")
-                        teacher_email = st.text_input("Email", key="teacher_email")
-                        teacher_name = st.text_input("Full Name", key="teacher_name")
-                    with col2:
-                        teacher_phone = st.text_input("Phone", key="teacher_phone")
-                        dept_options = {d['department_name']: d['department_id'] for d in departments}
-                        selected_dept = st.selectbox("Department", list(dept_options.keys()), 
-                                                    key="teacher_dept")
-                        dept_id = dept_options[selected_dept]
-                        teacher_password = st.text_input("Password", type="password", key="teacher_pass")
-                    
-                    if st.button("Add Teacher"):
-                        if teacher_username and teacher_name and teacher_password:
-                            if add_teacher(teacher_username, teacher_email, teacher_password,
-                                         teacher_name, teacher_phone, dept_id):
-                                st.success("✅ Teacher added successfully!")
-                            else:
-                                st.error("❌ Failed to add teacher")
-                        else:
-                            st.warning("Please fill in all required fields.")
-                else:
-                    st.warning("Please add departments first.")
-            
-            # Add Course
-            with add_tabs[3]:
-                st.subheader("➕ Add New Course")
-                departments = get_all_departments()
-                teachers = get_all_teachers()
-                
-                if departments and teachers:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        course_code = st.text_input("Course Code")
-                        course_name = st.text_input("Course Name")
-                        credit_hours = st.number_input("Credit Hours", min_value=1, max_value=6, value=3)
-                    with col2:
-                        semester = st.selectbox("Semester", ["Fall", "Spring", "Summer"])
-                        dept_options = {d['department_name']: d['department_id'] for d in departments}
-                        selected_dept = st.selectbox("Department", list(dept_options.keys()), 
-                                                    key="course_dept")
-                        dept_id = dept_options[selected_dept]
-                        
-                        teacher_options = {f"{t['full_name']} ({t['username']})": t['teacher_id'] 
-                                         for t in teachers}
-                        selected_teacher = st.selectbox("Assign Teacher", list(teacher_options.keys()))
-                        teacher_id = teacher_options[selected_teacher]
-                    
-                    if st.button("Add Course"):
-                        if course_code and course_name:
-                            if add_course(course_code, course_name, credit_hours, semester, 
-                                        dept_id, teacher_id):
-                                st.success("✅ Course added successfully!")
-                            else:
-                                st.error("❌ Failed to add course")
-                        else:
-                            st.warning("Please fill in all required fields.")
-                else:
-                    st.warning("Please add departments and teachers first.")
-        
-        # Tab 2: View Students
-        with tab2:
-            st.subheader("👥 All Students")
-            students = get_all_students()
-            if students:
-                df = pd.DataFrame(students)
-                df = df[['student_number', 'full_name', 'email', 'phone', 'department_name']]
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No students found.")
-        
-        # Tab 3: View Teachers
-        with tab3:
-            st.subheader("👨‍🏫 All Teachers")
-            teachers = get_all_teachers()
-            if teachers:
-                df = pd.DataFrame(teachers)
-                df = df[['username', 'full_name', 'email', 'phone', 'department_name']]
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No teachers found.")
-        
-        # Tab 4: View Courses
-        with tab4:
-            st.subheader("📚 All Courses")
-            courses = get_all_courses()
-            if courses:
-                df = pd.DataFrame(courses)
-                df = df[['course_code', 'course_name', 'credit_hours', 'semester', 
-                        'department_name', 'teacher_name']]
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No courses found.")
-        
-        # Tab 5: View Departments
-        with tab5:
-            st.subheader("🏢 All Departments")
-            departments = get_all_departments()
-            if departments:
-                df = pd.DataFrame(departments)
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No departments found.")
-
-if __name__ == "__main__":
-    main()
+            st.subheader(f"Welcome
