@@ -10,11 +10,11 @@ import os
 # Try to get from Streamlit secrets first, then environment variables, then defaults
 try:
     DB_CONFIG = {
-        'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'trolley.proxy.rlwy.net')),
+        'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'maglev.proxy.rlwy.net')),
         'user': st.secrets.get('DB_USER', os.getenv('DB_USER', 'root')),
-        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'BDuUCrTHxJTWMmeDVdDpRSYCAnvKSulX')),
+        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'qLLqcPiRVSWiTfbYWtXBMWexuOzQxmtN')),
         'database': st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'railway')),
-        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 46682)))
+        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 59270)))
     }
 except:
     DB_CONFIG = {
