@@ -80,7 +80,7 @@ def init_database():
                 role ENUM('admin', 'teacher', 'student') NOT NULL,
                 full_name VARCHAR(100) NOT NULL,
                 phone VARCHAR(20),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                
             )
         """)
         
@@ -125,7 +125,6 @@ def init_database():
                 exam_title VARCHAR(100) NOT NULL,
                 exam_type VARCHAR(50),
                 total_marks INT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE
             )
         """)
@@ -136,7 +135,6 @@ def init_database():
                 enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
                 student_id INT NOT NULL,
                 course_id INT NOT NULL,
-                enrollment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (student_id) REFERENCES STUDENT(student_id) ON DELETE CASCADE,
                 FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE,
                 UNIQUE KEY unique_enrollment (student_id, course_id)
@@ -150,7 +148,6 @@ def init_database():
                 exam_id INT NOT NULL,
                 student_id INT NOT NULL,
                 score_obtained FLOAT,
-                attempt_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (exam_id) REFERENCES EXAM(exam_id) ON DELETE CASCADE,
                 FOREIGN KEY (student_id) REFERENCES STUDENT(student_id) ON DELETE CASCADE
             )
@@ -162,7 +159,6 @@ def init_database():
                 grade_id INT AUTO_INCREMENT PRIMARY KEY,
                 enrollment_id INT NOT NULL,
                 total_score FLOAT,
-                graded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (enrollment_id) REFERENCES ENROLLMENT(enrollment_id) ON DELETE CASCADE
             )
         """)
