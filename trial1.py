@@ -10,11 +10,11 @@ import os
 # Try to get from Streamlit secrets first, then environment variables, then defaults
 try:
     DB_CONFIG = {
-        'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'maglev.proxy.rlwy.net')),
+        'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'nozomi.proxy.rlwy.net')),
         'user': st.secrets.get('DB_USER', os.getenv('DB_USER', 'root')),
-        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'qLLqcPiRVSWiTfbYWtXBMWexuOzQxmtN')),
+        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'BIKRXcBPlbjYcuAmioEdnDZszxXTqoMS')),
         'database': st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'railway')),
-        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 59270)))
+        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 54476)))
     }
 except:
     DB_CONFIG = {
@@ -71,9 +71,7 @@ def init_database():
                 user_id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(50) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
-                role ENUM('admin', 'teacher', 'student') NOT NULL,
-                full_name VARCHAR(100) NOT NULL,
-                phone VARCHAR(20)
+                role ENUM('admin', 'teacher', 'student') NOT NULL
             )
         """)
         
@@ -92,6 +90,7 @@ def init_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS TEACHER (
                 teacher_id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
                 user_id INT UNIQUE NOT NULL,
                 specialization VARCHAR(100),
                 FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
@@ -160,8 +159,8 @@ def init_database():
         if not cursor.fetchone():
             admin_pass = hash_password('admin123')
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, role, full_name) 
-                VALUES ('admin', %s, 'admin', 'System Administrator')
+                INSERT INTO USERS (username, password_hash, role) 
+                VALUES ('admin', %s, 'admin')
             """, (admin_pass,))
         
         conn.commit()
@@ -189,7 +188,7 @@ def get_student_by_user_id(user_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT s.*, u.full_name, u.phone 
+            SELECT s.*, u.username 
             FROM STUDENT s
             JOIN USERS u ON s.user_id = u.user_id
             WHERE s.user_id = %s
@@ -206,11 +205,10 @@ def get_student_enrollments(roll_number):
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT e.enrollment_id, c.course_code, c.course_name,
-                   u.full_name as teacher_name
+                   t.name as teacher_name
             FROM ENROLLMENT e
             JOIN COURSE c ON e.course_id = c.course_id
             LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            LEFT JOIN USERS u ON t.user_id = u.user_id
             WHERE e.roll_number = %s
         """, (roll_number,))
         enrollments = cursor.fetchall()
@@ -296,7 +294,7 @@ def get_teacher_by_user_id(user_id):
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT t.*, u.full_name, u.phone 
+            SELECT t.*, u.username 
             FROM TEACHER t
             JOIN USERS u ON t.user_id = u.user_id
             WHERE t.user_id = %s
@@ -434,16 +432,16 @@ def create_exam_attempt(exam_id, roll_number):
     return False
 
 # Admin Functions
-def add_student(username, password, full_name, phone, roll_number, name, date_of_birth):
+def add_student(username, password, roll_number, name, date_of_birth):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, role, full_name, phone)
-                VALUES (%s, %s, 'student', %s, %s)
-            """, (username, hashed_pass, full_name, phone))
+                INSERT INTO USERS (username, password_hash, role)
+                VALUES (%s, %s, 'student')
+            """, (username, hashed_pass))
             user_id = cursor.lastrowid
             
             cursor.execute("""
@@ -462,22 +460,22 @@ def add_student(username, password, full_name, phone, roll_number, name, date_of
             return False
     return False
 
-def add_teacher(username, password, full_name, phone, specialization):
+def add_teacher(username, password, name, specialization):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
         try:
             hashed_pass = hash_password(password)
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, role, full_name, phone)
-                VALUES (%s, %s, 'teacher', %s, %s)
-            """, (username, hashed_pass, full_name, phone))
+                INSERT INTO USERS (username, password_hash, role)
+                VALUES (%s, %s, 'teacher')
+            """, (username, hashed_pass))
             user_id = cursor.lastrowid
             
             cursor.execute("""
-                INSERT INTO TEACHER (user_id, specialization)
-                VALUES (%s, %s)
-            """, (user_id, specialization))
+                INSERT INTO TEACHER (name, user_id, specialization)
+                VALUES (%s, %s, %s)
+            """, (name, user_id, specialization))
             conn.commit()
             cursor.close()
             conn.close()
@@ -537,11 +535,11 @@ def get_all_teachers():
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT t.teacher_id, t.specialization, 
-                   u.full_name, u.username
+            SELECT t.teacher_id, t.name, t.specialization, 
+                   u.username
             FROM TEACHER t
             JOIN USERS u ON t.user_id = u.user_id
-            ORDER BY u.full_name
+            ORDER BY t.name
         """)
         teachers = cursor.fetchall()
         cursor.close()
@@ -555,7 +553,7 @@ def get_all_students():
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT s.roll_number, s.name, s.date_of_birth,
-                   u.full_name, u.phone, u.username
+                   u.username
             FROM STUDENT s
             JOIN USERS u ON s.user_id = u.user_id
             ORDER BY s.roll_number
@@ -571,10 +569,9 @@ def get_all_courses():
     if conn:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT c.*, u.full_name as teacher_name 
+            SELECT c.*, t.name as teacher_name 
             FROM COURSE c
             LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            LEFT JOIN USERS u ON t.user_id = u.user_id
             ORDER BY c.course_code
         """)
         courses = cursor.fetchall()
@@ -621,7 +618,7 @@ def main():
     # Login Page
     if not st.session_state.logged_in:
         st.title("🎓 Exam Management System")
-        st.caption("With EXAM_RESULT Table - Roll Number as Primary Key")
+        st.caption("Simplified Schema - No phone/full_name in USERS")
         st.markdown("---")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -650,7 +647,7 @@ def main():
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
+            st.subheader(f"Welcome, {st.session_state.user['username']}")
         with col2:
             if st.button("Logout"):
                 st.session_state.logged_in = False
@@ -665,11 +662,10 @@ def main():
         if student:
             # Student Details
             st.subheader("📋 Student Details")
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             col1.metric("Roll Number", student['roll_number'])
             col2.metric("Name", student['name'])
-            col3.metric("Full Name", student['full_name'])
-            col4.metric("Phone", student['phone'] or 'N/A')
+            col3.metric("Date of Birth", student['date_of_birth'] or 'N/A')
             
             st.markdown("---")
             
@@ -711,7 +707,7 @@ def main():
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
+            st.subheader(f"Welcome, {st.session_state.user['username']}")
         with col2:
             if st.button("Logout"):
                 st.session_state.logged_in = False
@@ -724,7 +720,7 @@ def main():
         teacher = get_teacher_by_user_id(st.session_state.user['user_id'])
         
         if teacher:
-            st.info(f"Specialization: {teacher['specialization']}")
+            st.info(f"Teacher: {teacher['name']} | Specialization: {teacher['specialization']}")
             
             courses = get_teacher_courses(teacher['teacher_id'])
             
@@ -854,7 +850,7 @@ def main():
         
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Welcome, {st.session_state.user['full_name']}")
+            st.subheader(f"Welcome, {st.session_state.user['username']}")
         with col2:
             if st.button("Logout"):
                 st.session_state.logged_in = False
@@ -875,17 +871,15 @@ def main():
                 col1, col2 = st.columns(2)
                 with col1:
                     username = st.text_input("Username")
-                    full_name = st.text_input("Full Name")
-                    phone = st.text_input("Phone")
-                    roll_number = st.text_input("Roll Number")
+                    roll_number = st.number_input("Roll Number", min_value=1, step=1)
+                    date_of_birth = st.date_input("Date of Birth")
                 with col2:
                     password = st.text_input("Password", type="password", key="student_pass")
                     name = st.text_input("Student Name")
-                    date_of_birth = st.date_input("Date of Birth")
                 
                 if st.button("Add Student"):
-                    if all([username, password, full_name, roll_number, name]):
-                        if add_student(username, password, full_name, phone, roll_number, name, date_of_birth):
+                    if all([username, password, roll_number, name]):
+                        if add_student(username, password, roll_number, name, date_of_birth):
                             st.success(f"Student {name} added successfully!")
                             st.rerun()
                         else:
@@ -898,15 +892,14 @@ def main():
                 col1, col2 = st.columns(2)
                 with col1:
                     teacher_username = st.text_input("Username", key="teacher_username")
-                    teacher_name = st.text_input("Full Name", key="teacher_name")
-                    teacher_phone = st.text_input("Phone", key="teacher_phone")
+                    teacher_name = st.text_input("Teacher Name", key="teacher_name")
                 with col2:
                     teacher_password = st.text_input("Password", type="password", key="teacher_pass")
                     specialization = st.text_input("Specialization")
                 
                 if st.button("Add Teacher"):
                     if all([teacher_username, teacher_password, teacher_name]):
-                        if add_teacher(teacher_username, teacher_password, teacher_name, teacher_phone, specialization):
+                        if add_teacher(teacher_username, teacher_password, teacher_name, specialization):
                             st.success(f"Teacher {teacher_name} added successfully!")
                             st.rerun()
                         else:
@@ -923,7 +916,7 @@ def main():
                 with col2:
                     teachers = get_all_teachers()
                     if teachers:
-                        teacher_options = {f"{t['full_name']}": t['teacher_id'] for t in teachers}
+                        teacher_options = {f"{t['name']}": t['teacher_id'] for t in teachers}
                         selected_teacher = st.selectbox("Assign Teacher", list(teacher_options.keys()))
                         teacher_id = teacher_options[selected_teacher]
                     else:
