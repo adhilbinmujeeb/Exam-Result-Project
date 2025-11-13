@@ -3,6 +3,7 @@ import mysql.connector
 from mysql.connector import Error
 import pandas as pd
 import hashlib
+from datetime import date
 
 # Database Configuration
 import os
@@ -10,11 +11,11 @@ import os
 # Try to get from Streamlit secrets first, then environment variables, then defaults
 try:
     DB_CONFIG = {
-        'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'nozomi.proxy.rlwy.net')),
+        'host': st.secrets.get('DB_HOST', os.getenv('DB_HOST', 'maglev.proxy.rlwy.net')),
         'user': st.secrets.get('DB_USER', os.getenv('DB_USER', 'root')),
-        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'BIKRXcBPlbjYcuAmioEdnDZszxXTqoMS')),
+        'password': st.secrets.get('DB_PASSWORD', os.getenv('DB_PASSWORD', 'QDKLFUFZbcSMkpSnmpXVynQJvvEXNHnO')),
         'database': st.secrets.get('DB_NAME', os.getenv('DB_NAME', 'railway')),
-        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 54476)))
+        'port': int(st.secrets.get('DB_PORT', os.getenv('DB_PORT', 47232)))
     }
 except:
     DB_CONFIG = {
@@ -28,7 +29,7 @@ except:
 # Grading System - Pure Functions
 def calculate_grade(score, total_marks):
     """Calculate letter grade based on percentage"""
-    if total_marks == 0:
+    if total_marks == 0 or score is None:
         return 'F'
     percentage = (score / total_marks) * 100
     if percentage >= 90:
@@ -64,123 +65,132 @@ def init_database():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor()
-        
-        # Create USERS table with full_name
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS USERS (
-                user_id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                full_name VARCHAR(100) NOT NULL,
-                role ENUM('admin', 'teacher', 'student') NOT NULL
-            )
-        """)
-        
-        # Create STUDENT table (roll_number as PK)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS STUDENT (
-                roll_number INT PRIMARY KEY,
-                user_id INT UNIQUE NOT NULL,
-                name VARCHAR(100) NOT NULL,
-                date_of_birth DATE,
-                FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
-            )
-        """)
-        
-        # Create TEACHER table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS TEACHER (
-                teacher_id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100) NOT NULL,
-                user_id INT UNIQUE NOT NULL,
-                specialization VARCHAR(100),
-                FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
-            )
-        """)
-        
-        # Create COURSE table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS COURSE (
-                course_id INT AUTO_INCREMENT PRIMARY KEY,
-                course_code VARCHAR(20) UNIQUE NOT NULL,
-                course_name VARCHAR(100) NOT NULL,
-                teacher_id INT,
-                FOREIGN KEY (teacher_id) REFERENCES TEACHER(teacher_id) ON DELETE SET NULL
-            )
-        """)
-        
-        # Create EXAM table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS EXAM (
-                exam_id INT AUTO_INCREMENT PRIMARY KEY,
-                course_id INT NOT NULL,
-                exam_title VARCHAR(100) NOT NULL,
-                total_marks INT NOT NULL,
-                FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE
-            )
-        """)
-        
-        # Create ENROLLMENT table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ENROLLMENT (
-                enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
-                roll_number INT NOT NULL,
-                course_id INT NOT NULL,
-                FOREIGN KEY (roll_number) REFERENCES STUDENT(roll_number) ON DELETE CASCADE,
-                FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE,
-                UNIQUE KEY unique_enrollment (roll_number, course_id)
-            )
-        """)
-        
-        # Create EXAM_ATTEMPT table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS EXAM_ATTEMPT (
-                attempt_id INT AUTO_INCREMENT PRIMARY KEY,
-                exam_id INT NOT NULL,
-                roll_number INT NOT NULL,
-                score_obtained FLOAT,
-                FOREIGN KEY (exam_id) REFERENCES EXAM(exam_id) ON DELETE CASCADE,
-                FOREIGN KEY (roll_number) REFERENCES STUDENT(roll_number) ON DELETE CASCADE
-            )
-        """)
-        
-        # Create EXAM_RESULT table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS EXAM_RESULT (
-                result_id INT AUTO_INCREMENT PRIMARY KEY,
-                attempt_id INT UNIQUE NOT NULL,
-                letter_grade VARCHAR(2) NOT NULL,
-                status VARCHAR(10) NOT NULL,
-                FOREIGN KEY (attempt_id) REFERENCES EXAM_ATTEMPT(attempt_id) ON DELETE CASCADE
-            )
-        """)
-        
-        # Insert default admin if not exists
-        cursor.execute("SELECT * FROM USERS WHERE username = 'admin'")
-        if not cursor.fetchone():
-            admin_pass = hash_password('admin123')
+        try:
+            # Create USERS table with full_name
             cursor.execute("""
-                INSERT INTO USERS (username, password_hash, full_name, role) 
-                VALUES ('admin', %s, 'System Administrator', 'admin')
-            """, (admin_pass,))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+                CREATE TABLE IF NOT EXISTS USERS (
+                    user_id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(50) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    full_name VARCHAR(100) NOT NULL,
+                    role ENUM('admin', 'teacher', 'student') NOT NULL
+                )
+            """)
+            
+            # Create STUDENT table (roll_number as PK)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS STUDENT (
+                    roll_number INT PRIMARY KEY,
+                    user_id INT UNIQUE NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    date_of_birth DATE,
+                    FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create TEACHER table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS TEACHER (
+                    teacher_id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    user_id INT UNIQUE NOT NULL,
+                    specialization VARCHAR(100),
+                    FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create COURSE table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS COURSE (
+                    course_id INT AUTO_INCREMENT PRIMARY KEY,
+                    course_code VARCHAR(20) UNIQUE NOT NULL,
+                    course_name VARCHAR(100) NOT NULL,
+                    teacher_id INT,
+                    FOREIGN KEY (teacher_id) REFERENCES TEACHER(teacher_id) ON DELETE SET NULL
+                )
+            """)
+            
+            # Create EXAM table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS EXAM (
+                    exam_id INT AUTO_INCREMENT PRIMARY KEY,
+                    course_id INT NOT NULL,
+                    exam_title VARCHAR(100) NOT NULL,
+                    total_marks INT NOT NULL,
+                    FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create ENROLLMENT table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ENROLLMENT (
+                    enrollment_id INT AUTO_INCREMENT PRIMARY KEY,
+                    roll_number INT NOT NULL,
+                    course_id INT NOT NULL,
+                    FOREIGN KEY (roll_number) REFERENCES STUDENT(roll_number) ON DELETE CASCADE,
+                    FOREIGN KEY (course_id) REFERENCES COURSE(course_id) ON DELETE CASCADE,
+                    UNIQUE KEY unique_enrollment (roll_number, course_id)
+                )
+            """)
+            
+            # Create EXAM_ATTEMPT table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS EXAM_ATTEMPT (
+                    attempt_id INT AUTO_INCREMENT PRIMARY KEY,
+                    exam_id INT NOT NULL,
+                    roll_number INT NOT NULL,
+                    score_obtained FLOAT,
+                    FOREIGN KEY (exam_id) REFERENCES EXAM(exam_id) ON DELETE CASCADE,
+                    FOREIGN KEY (roll_number) REFERENCES STUDENT(roll_number) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create EXAM_RESULT table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS EXAM_RESULT (
+                    result_id INT AUTO_INCREMENT PRIMARY KEY,
+                    attempt_id INT UNIQUE NOT NULL,
+                    letter_grade VARCHAR(2) NOT NULL,
+                    status VARCHAR(10) NOT NULL,
+                    FOREIGN KEY (attempt_id) REFERENCES EXAM_ATTEMPT(attempt_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Insert default admin if not exists
+            cursor.execute("SELECT * FROM USERS WHERE username = 'admin'")
+            if not cursor.fetchone():
+                admin_pass = hash_password('admin123')
+                cursor.execute("""
+                    INSERT INTO USERS (username, password_hash, full_name, role) 
+                    VALUES ('admin', %s, 'System Administrator', 'admin')
+                """, (admin_pass,))
+            
+            conn.commit()
+        except Error as e:
+            st.error(f"Error initializing database: {e}")
+            conn.rollback()
+        finally:
+            cursor.close()
+            conn.close()
 
 # Authentication
 def authenticate(username, password, role):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        hashed_pass = hash_password(password)
-        cursor.execute("""
-            SELECT * FROM USERS WHERE username = %s AND password_hash = %s AND role = %s
-        """, (username, hashed_pass, role))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return user
+        try:
+            hashed_pass = hash_password(password)
+            cursor.execute("""
+                SELECT * FROM USERS WHERE username = %s AND password_hash = %s AND role = %s
+            """, (username, hashed_pass, role))
+            user = cursor.fetchone()
+            return user
+        except Error as e:
+            st.error(f"Authentication error: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
     return None
 
 # Student Functions
@@ -188,55 +198,70 @@ def get_student_by_user_id(user_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT s.*, u.username, u.full_name
-            FROM STUDENT s
-            JOIN USERS u ON s.user_id = u.user_id
-            WHERE s.user_id = %s
-        """, (user_id,))
-        student = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return student
+        try:
+            cursor.execute("""
+                SELECT s.*, u.username, u.full_name
+                FROM STUDENT s
+                JOIN USERS u ON s.user_id = u.user_id
+                WHERE s.user_id = %s
+            """, (user_id,))
+            student = cursor.fetchone()
+            return student
+        except Error as e:
+            st.error(f"Error fetching student: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
     return None
 
 def get_student_enrollments(roll_number):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT e.enrollment_id, c.course_code, c.course_name,
-                   t.name as teacher_name
-            FROM ENROLLMENT e
-            JOIN COURSE c ON e.course_id = c.course_id
-            LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            WHERE e.roll_number = %s
-        """, (roll_number,))
-        enrollments = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return enrollments
+        try:
+            cursor.execute("""
+                SELECT e.enrollment_id, c.course_code, c.course_name,
+                       t.name as teacher_name
+                FROM ENROLLMENT e
+                JOIN COURSE c ON e.course_id = c.course_id
+                LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
+                WHERE e.roll_number = %s
+            """, (roll_number,))
+            enrollments = cursor.fetchall()
+            return enrollments
+        except Error as e:
+            st.error(f"Error fetching enrollments: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_student_exam_attempts(roll_number):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT ea.*, e.exam_title, e.total_marks, 
-                   c.course_code, c.course_name,
-                   er.letter_grade, er.status
-            FROM EXAM_ATTEMPT ea
-            JOIN EXAM e ON ea.exam_id = e.exam_id
-            JOIN COURSE c ON e.course_id = c.course_id
-            LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
-            WHERE ea.roll_number = %s
-            ORDER BY ea.attempt_id DESC
-        """, (roll_number,))
-        attempts = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return attempts
+        try:
+            cursor.execute("""
+                SELECT ea.*, e.exam_title, e.total_marks, 
+                       c.course_code, c.course_name,
+                       er.letter_grade, er.status
+                FROM EXAM_ATTEMPT ea
+                JOIN EXAM e ON ea.exam_id = e.exam_id
+                JOIN COURSE c ON e.course_id = c.course_id
+                LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
+                WHERE ea.roll_number = %s
+                ORDER BY ea.attempt_id DESC
+            """, (roll_number,))
+            attempts = cursor.fetchall()
+            return attempts
+        except Error as e:
+            st.error(f"Error fetching exam attempts: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 # Teacher Functions
@@ -244,62 +269,82 @@ def get_teacher_by_user_id(user_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT t.*, u.username, u.full_name
-            FROM TEACHER t
-            JOIN USERS u ON t.user_id = u.user_id
-            WHERE t.user_id = %s
-        """, (user_id,))
-        teacher = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return teacher
+        try:
+            cursor.execute("""
+                SELECT t.*, u.username, u.full_name
+                FROM TEACHER t
+                JOIN USERS u ON t.user_id = u.user_id
+                WHERE t.user_id = %s
+            """, (user_id,))
+            teacher = cursor.fetchone()
+            return teacher
+        except Error as e:
+            st.error(f"Error fetching teacher: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
     return None
 
 def get_teacher_courses(teacher_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT * FROM COURSE WHERE teacher_id = %s
-        """, (teacher_id,))
-        courses = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return courses
+        try:
+            cursor.execute("""
+                SELECT * FROM COURSE WHERE teacher_id = %s
+            """, (teacher_id,))
+            courses = cursor.fetchall()
+            return courses
+        except Error as e:
+            st.error(f"Error fetching teacher courses: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_course_exams(course_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT * FROM EXAM WHERE course_id = %s ORDER BY exam_id DESC
-        """, (course_id,))
-        exams = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return exams
+        try:
+            cursor.execute("""
+                SELECT * FROM EXAM WHERE course_id = %s ORDER BY exam_id DESC
+            """, (course_id,))
+            exams = cursor.fetchall()
+            return exams
+        except Error as e:
+            st.error(f"Error fetching course exams: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_exam_attempts(exam_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT ea.*, s.roll_number, s.name, e.total_marks,
-                   er.letter_grade, er.status
-            FROM EXAM_ATTEMPT ea
-            JOIN STUDENT s ON ea.roll_number = s.roll_number
-            JOIN EXAM e ON ea.exam_id = e.exam_id
-            LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
-            WHERE ea.exam_id = %s
-            ORDER BY s.name
-        """, (exam_id,))
-        attempts = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return attempts
+        try:
+            cursor.execute("""
+                SELECT ea.*, s.roll_number, s.name, e.total_marks,
+                       er.letter_grade, er.status
+                FROM EXAM_ATTEMPT ea
+                JOIN STUDENT s ON ea.roll_number = s.roll_number
+                JOIN EXAM e ON ea.exam_id = e.exam_id
+                LEFT JOIN EXAM_RESULT er ON ea.attempt_id = er.attempt_id
+                WHERE ea.exam_id = %s
+                ORDER BY s.name
+            """, (exam_id,))
+            attempts = cursor.fetchall()
+            return attempts
+        except Error as e:
+            st.error(f"Error fetching exam attempts: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def update_exam_attempt_and_result(attempt_id, score, total_marks):
@@ -324,19 +369,18 @@ def update_exam_attempt_and_result(attempt_id, score, total_marks):
                 INSERT INTO EXAM_RESULT (attempt_id, letter_grade, status)
                 VALUES (%s, %s, %s)
                 ON DUPLICATE KEY UPDATE 
-                    letter_grade = %s, status = %s
-            """, (attempt_id, letter_grade, status, letter_grade, status))
+                    letter_grade = VALUES(letter_grade), status = VALUES(status)
+            """, (attempt_id, letter_grade, status))
             
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error updating attempt: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 def create_exam(course_id, exam_title, total_marks):
@@ -349,15 +393,14 @@ def create_exam(course_id, exam_title, total_marks):
                 VALUES (%s, %s, %s)
             """, (course_id, exam_title, total_marks))
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error creating exam: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 def create_exam_attempt(exam_id, roll_number):
@@ -366,20 +409,28 @@ def create_exam_attempt(exam_id, roll_number):
     if conn:
         cursor = conn.cursor()
         try:
+            # Check if attempt already exists
+            cursor.execute("""
+                SELECT attempt_id FROM EXAM_ATTEMPT 
+                WHERE exam_id = %s AND roll_number = %s
+            """, (exam_id, roll_number))
+            if cursor.fetchone():
+                st.error("Exam attempt already exists for this student!")
+                return False
+                
             cursor.execute("""
                 INSERT INTO EXAM_ATTEMPT (exam_id, roll_number, score_obtained)
                 VALUES (%s, %s, NULL)
             """, (exam_id, roll_number))
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error creating exam attempt: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 # Admin Functions
@@ -388,6 +439,18 @@ def add_student(username, password, roll_number, name, date_of_birth):
     if conn:
         cursor = conn.cursor()
         try:
+            # Check if username already exists
+            cursor.execute("SELECT user_id FROM USERS WHERE username = %s", (username,))
+            if cursor.fetchone():
+                st.error("Username already exists!")
+                return False
+                
+            # Check if roll number already exists
+            cursor.execute("SELECT roll_number FROM STUDENT WHERE roll_number = %s", (roll_number,))
+            if cursor.fetchone():
+                st.error("Roll number already exists!")
+                return False
+                
             hashed_pass = hash_password(password)
             cursor.execute("""
                 INSERT INTO USERS (username, password_hash, full_name, role)
@@ -400,15 +463,14 @@ def add_student(username, password, roll_number, name, date_of_birth):
                 VALUES (%s, %s, %s, %s)
             """, (roll_number, user_id, name, date_of_birth))
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error adding student: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 def add_teacher(username, password, name, specialization):
@@ -416,6 +478,12 @@ def add_teacher(username, password, name, specialization):
     if conn:
         cursor = conn.cursor()
         try:
+            # Check if username already exists
+            cursor.execute("SELECT user_id FROM USERS WHERE username = %s", (username,))
+            if cursor.fetchone():
+                st.error("Username already exists!")
+                return False
+                
             hashed_pass = hash_password(password)
             cursor.execute("""
                 INSERT INTO USERS (username, password_hash, full_name, role)
@@ -428,15 +496,14 @@ def add_teacher(username, password, name, specialization):
                 VALUES (%s, %s, %s)
             """, (name, user_id, specialization))
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error adding teacher: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 def add_course(course_code, course_name, teacher_id):
@@ -444,20 +511,25 @@ def add_course(course_code, course_name, teacher_id):
     if conn:
         cursor = conn.cursor()
         try:
+            # Check if course code already exists
+            cursor.execute("SELECT course_id FROM COURSE WHERE course_code = %s", (course_code,))
+            if cursor.fetchone():
+                st.error("Course code already exists!")
+                return False
+                
             cursor.execute("""
                 INSERT INTO COURSE (course_code, course_name, teacher_id)
                 VALUES (%s, %s, %s)
             """, (course_code, course_name, teacher_id))
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error adding course: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 def enroll_student(roll_number, course_id):
@@ -465,70 +537,93 @@ def enroll_student(roll_number, course_id):
     if conn:
         cursor = conn.cursor()
         try:
+            # Check if already enrolled
+            cursor.execute("""
+                SELECT enrollment_id FROM ENROLLMENT 
+                WHERE roll_number = %s AND course_id = %s
+            """, (roll_number, course_id))
+            if cursor.fetchone():
+                st.error("Student is already enrolled in this course!")
+                return False
+                
             cursor.execute("""
                 INSERT INTO ENROLLMENT (roll_number, course_id)
                 VALUES (%s, %s)
             """, (roll_number, course_id))
             conn.commit()
-            cursor.close()
-            conn.close()
             return True
         except Error as e:
             st.error(f"Error enrolling student: {e}")
             conn.rollback()
+            return False
+        finally:
             cursor.close()
             conn.close()
-            return False
     return False
 
 def get_all_teachers():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT t.teacher_id, t.name, t.specialization, 
-                   u.username, u.full_name
-            FROM TEACHER t
-            JOIN USERS u ON t.user_id = u.user_id
-            ORDER BY t.name
-        """)
-        teachers = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return teachers
+        try:
+            cursor.execute("""
+                SELECT t.teacher_id, t.name, t.specialization, 
+                       u.username, u.full_name
+                FROM TEACHER t
+                JOIN USERS u ON t.user_id = u.user_id
+                ORDER BY t.name
+            """)
+            teachers = cursor.fetchall()
+            return teachers
+        except Error as e:
+            st.error(f"Error fetching teachers: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_all_students():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT s.roll_number, s.name, s.date_of_birth,
-                   u.username, u.full_name
-            FROM STUDENT s
-            JOIN USERS u ON s.user_id = u.user_id
-            ORDER BY s.roll_number
-        """)
-        students = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return students
+        try:
+            cursor.execute("""
+                SELECT s.roll_number, s.name, s.date_of_birth,
+                       u.username, u.full_name
+                FROM STUDENT s
+                JOIN USERS u ON s.user_id = u.user_id
+                ORDER BY s.roll_number
+            """)
+            students = cursor.fetchall()
+            return students
+        except Error as e:
+            st.error(f"Error fetching students: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_all_courses():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT c.*, t.name as teacher_name 
-            FROM COURSE c
-            LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
-            ORDER BY c.course_code
-        """)
-        courses = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return courses
+        try:
+            cursor.execute("""
+                SELECT c.*, t.name as teacher_name 
+                FROM COURSE c
+                LEFT JOIN TEACHER t ON c.teacher_id = t.teacher_id
+                ORDER BY c.course_code
+            """)
+            courses = cursor.fetchall()
+            return courses
+        except Error as e:
+            st.error(f"Error fetching courses: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_all_results():
@@ -536,21 +631,26 @@ def get_all_results():
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT s.roll_number, s.name, c.course_code, c.course_name,
-                   e.exam_title, ea.score_obtained, e.total_marks,
-                   er.letter_grade, er.status
-            FROM EXAM_RESULT er
-            JOIN EXAM_ATTEMPT ea ON er.attempt_id = ea.attempt_id
-            JOIN STUDENT s ON ea.roll_number = s.roll_number
-            JOIN EXAM e ON ea.exam_id = e.exam_id
-            JOIN COURSE c ON e.course_id = c.course_id
-            ORDER BY s.roll_number, c.course_code
-        """)
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return results
+        try:
+            cursor.execute("""
+                SELECT s.roll_number, s.name, c.course_code, c.course_name,
+                       e.exam_title, ea.score_obtained, e.total_marks,
+                       er.letter_grade, er.status
+                FROM EXAM_RESULT er
+                JOIN EXAM_ATTEMPT ea ON er.attempt_id = ea.attempt_id
+                JOIN STUDENT s ON ea.roll_number = s.roll_number
+                JOIN EXAM e ON ea.exam_id = e.exam_id
+                JOIN COURSE c ON e.course_id = c.course_id
+                ORDER BY s.roll_number, c.course_code
+            """)
+            results = cursor.fetchall()
+            return results
+        except Error as e:
+            st.error(f"Error fetching results: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 def get_enrolled_students(course_id):
@@ -558,17 +658,22 @@ def get_enrolled_students(course_id):
     conn = get_db_connection()
     if conn:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT s.roll_number, s.name
-            FROM ENROLLMENT e
-            JOIN STUDENT s ON e.roll_number = s.roll_number
-            WHERE e.course_id = %s
-            ORDER BY s.roll_number
-        """, (course_id,))
-        students = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return students
+        try:
+            cursor.execute("""
+                SELECT s.roll_number, s.name
+                FROM ENROLLMENT e
+                JOIN STUDENT s ON e.roll_number = s.roll_number
+                WHERE e.course_id = %s
+                ORDER BY s.roll_number
+            """, (course_id,))
+            students = cursor.fetchall()
+            return students
+        except Error as e:
+            st.error(f"Error fetching enrolled students: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
     return []
 
 # Streamlit UI
@@ -598,14 +703,17 @@ def main():
             password = st.text_input("Password", type="password")
             
             if st.button("Login", use_container_width=True):
-                user = authenticate(username, password, role)
-                if user:
-                    st.session_state.logged_in = True
-                    st.session_state.user = user
-                    st.session_state.role = role
-                    st.rerun()
+                if username and password:
+                    user = authenticate(username, password, role)
+                    if user:
+                        st.session_state.logged_in = True
+                        st.session_state.user = user
+                        st.session_state.role = role
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials!")
                 else:
-                    st.error("Invalid credentials!")
+                    st.warning("Please enter both username and password")
             
             st.info("Default Admin: username=`admin`, password=`admin123`")
     
@@ -628,12 +736,15 @@ def main():
         student = get_student_by_user_id(st.session_state.user['user_id'])
         
         if student:
-            # Student Details
+            # Student Details - FIXED: Convert date to string for st.metric
             st.subheader("📋 Student Details")
             col1, col2, col3 = st.columns(3)
-            col1.metric("Roll Number", student['roll_number'])
+            col1.metric("Roll Number", str(student['roll_number']))
             col2.metric("Name", student['name'])
-            col3.metric("Date of Birth", student['date_of_birth'] or 'N/A')
+            
+            # Convert date to string or use 'N/A' if None
+            dob_display = str(student['date_of_birth']) if student['date_of_birth'] else 'N/A'
+            col3.metric("Date of Birth", dob_display)
             
             st.markdown("---")
             
@@ -645,7 +756,9 @@ def main():
                 enrollments = get_student_enrollments(student['roll_number'])
                 if enrollments:
                     df = pd.DataFrame(enrollments)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    # Select only relevant columns for display
+                    display_df = df[['course_code', 'course_name', 'teacher_name']]
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
                 else:
                     st.info("You are not enrolled in any courses yet.")
             
@@ -653,8 +766,20 @@ def main():
                 st.subheader("My Exam Attempts & Results")
                 attempts = get_student_exam_attempts(student['roll_number'])
                 if attempts:
+                    # Clean the data for display
+                    for attempt in attempts:
+                        if attempt['score_obtained'] is None:
+                            attempt['score_obtained'] = 'Not Graded'
+                        if attempt['letter_grade'] is None:
+                            attempt['letter_grade'] = 'N/A'
+                        if attempt['status'] is None:
+                            attempt['status'] = 'N/A'
+                    
                     df = pd.DataFrame(attempts)
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    # Select only relevant columns for display
+                    display_columns = ['exam_title', 'course_code', 'course_name', 'score_obtained', 'total_marks', 'letter_grade', 'status']
+                    display_df = df[display_columns]
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
                 else:
                     st.info("No exam attempts recorded yet.")
     
@@ -677,7 +802,7 @@ def main():
         teacher = get_teacher_by_user_id(st.session_state.user['user_id'])
         
         if teacher:
-            st.info(f"Teacher: {teacher['name']} | Specialization: {teacher['specialization']}")
+            st.info(f"Teacher: {teacher['name']} | Specialization: {teacher.get('specialization', 'N/A')}")
             
             courses = get_teacher_courses(teacher['teacher_id'])
             
@@ -717,7 +842,7 @@ def main():
                                                     st.caption("⏳ Not graded yet")
                                             
                                             with col2:
-                                                current_score = attempt['score_obtained'] if attempt['score_obtained'] else 0
+                                                current_score = attempt['score_obtained'] if attempt['score_obtained'] is not None else 0.0
                                                 new_score = st.number_input(
                                                     "Score",
                                                     min_value=0.0,
@@ -742,8 +867,8 @@ def main():
                         total_marks = st.number_input("Total Marks", min_value=1, max_value=200, value=100)
                         
                         if st.button("Create Exam"):
-                            if exam_title:
-                                if create_exam(course_id, exam_title, total_marks):
+                            if exam_title.strip():
+                                if create_exam(course_id, exam_title.strip(), total_marks):
                                     st.success("Exam created successfully!")
                                     st.rerun()
                             else:
@@ -776,7 +901,7 @@ def main():
                                     st.success("Exam attempt added successfully!")
                                     st.rerun()
                                 else:
-                                    st.error("Failed to add exam attempt (may already exist)")
+                                    st.error("Failed to add exam attempt")
                         else:
                             if not exams:
                                 st.warning("No exams available. Please create an exam first.")
@@ -813,14 +938,14 @@ def main():
                 with col1:
                     username = st.text_input("Username")
                     roll_number = st.number_input("Roll Number", min_value=1, step=1)
-                    date_of_birth = st.date_input("Date of Birth")
+                    date_of_birth = st.date_input("Date of Birth", value=date(2000, 1, 1))
                 with col2:
                     password = st.text_input("Password", type="password", key="student_pass")
                     name = st.text_input("Student Name")
                 
                 if st.button("Add Student"):
-                    if all([username, password, roll_number, name]):
-                        if add_student(username, password, roll_number, name, date_of_birth):
+                    if all([username.strip(), password, roll_number, name.strip()]):
+                        if add_student(username.strip(), password, roll_number, name.strip(), date_of_birth):
                             st.success(f"Student {name} added successfully!")
                             st.rerun()
                         else:
@@ -839,8 +964,8 @@ def main():
                     specialization = st.text_input("Specialization")
                 
                 if st.button("Add Teacher"):
-                    if all([teacher_username, teacher_password, teacher_name]):
-                        if add_teacher(teacher_username, teacher_password, teacher_name, specialization):
+                    if all([teacher_username.strip(), teacher_password, teacher_name.strip()]):
+                        if add_teacher(teacher_username.strip(), teacher_password, teacher_name.strip(), specialization):
                             st.success(f"Teacher {teacher_name} added successfully!")
                             st.rerun()
                         else:
@@ -857,7 +982,7 @@ def main():
                 with col2:
                     teachers = get_all_teachers()
                     if teachers:
-                        teacher_options = {f"{t['name']}": t['teacher_id'] for t in teachers}
+                        teacher_options = {f"{t['name']} (ID: {t['teacher_id']})": t['teacher_id'] for t in teachers}
                         selected_teacher = st.selectbox("Assign Teacher", list(teacher_options.keys()))
                         teacher_id = teacher_options[selected_teacher]
                     else:
@@ -865,8 +990,8 @@ def main():
                         teacher_id = None
                 
                 if st.button("Add Course"):
-                    if course_code and course_name and teacher_id:
-                        if add_course(course_code, course_name, teacher_id):
+                    if course_code.strip() and course_name.strip() and teacher_id:
+                        if add_course(course_code.strip(), course_name.strip(), teacher_id):
                             st.success(f"Course {course_name} added successfully!")
                             st.rerun()
                         else:
